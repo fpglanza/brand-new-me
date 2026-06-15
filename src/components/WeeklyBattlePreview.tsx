@@ -1,29 +1,43 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { WeeklyBattlePreview as WeeklyBattlePreviewData } from '../types/game';
 
 type WeeklyBattlePreviewProps = {
   weeklyBattle: WeeklyBattlePreviewData;
+  onPress?: () => void;
 };
 
 export function WeeklyBattlePreview({
+  onPress,
   weeklyBattle,
 }: WeeklyBattlePreviewProps) {
-  const completionPercent = Math.round(weeklyBattle.completionRate * 100);
+  const Container = onPress ? Pressable : View;
 
   return (
-    <View style={styles.card}>
+    <Container
+      accessibilityRole={onPress ? 'button' : undefined}
+      onPress={onPress}
+      style={styles.card}
+    >
       <Text style={styles.title}>WEEKLY BATTLE</Text>
       <View style={styles.row}>
-        <Text style={styles.label}>Current Completion</Text>
-        <Text style={styles.value}>{completionPercent}%</Text>
+        <Text style={styles.label}>Victory Days</Text>
+        <Text style={styles.value}>{weeklyBattle.victoryDays} / 7</Text>
+      </View>
+      <View style={styles.row}>
+        <Text style={styles.label}>Strong Days</Text>
+        <Text style={styles.value}>{weeklyBattle.strongDays}</Text>
+      </View>
+      <View style={styles.row}>
+        <Text style={styles.label}>Legendary Days</Text>
+        <Text style={styles.value}>{weeklyBattle.legendaryDays}</Text>
       </View>
       <View style={styles.row}>
         <Text style={styles.label}>Projected Result</Text>
         <Text style={styles.result}>{weeklyBattle.result}</Text>
       </View>
       <Text style={styles.flavor}>{weeklyBattle.flavorText}</Text>
-    </View>
+    </Container>
   );
 }
 

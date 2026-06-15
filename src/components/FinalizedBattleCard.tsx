@@ -9,7 +9,7 @@ type FinalizedBattleCardProps = {
 export function FinalizedBattleCard({
   finalizedBattle,
 }: FinalizedBattleCardProps) {
-  const completionPercent = Math.round(finalizedBattle.completionRate * 100);
+  const victoryDays = Math.round(finalizedBattle.completionRate * 7);
 
   return (
     <View style={styles.card}>
@@ -19,8 +19,8 @@ export function FinalizedBattleCard({
         <Text style={styles.result}>{finalizedBattle.result}</Text>
       </View>
       <View style={styles.row}>
-        <Text style={styles.label}>Completion</Text>
-        <Text style={styles.value}>{completionPercent}%</Text>
+        <Text style={styles.label}>Victory Days</Text>
+        <Text style={styles.value}>{victoryDays} / 7</Text>
       </View>
       <Text style={styles.flavor}>Message: {finalizedBattle.flavorText}</Text>
     </View>

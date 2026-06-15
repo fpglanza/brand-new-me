@@ -29,7 +29,9 @@ export function QuestCard({ quest, onToggle }: QuestCardProps) {
         ]}
       />
       <View style={styles.questBody}>
+        <Text style={styles.questCategory}>{quest.category}</Text>
         <Text style={styles.questTitle}>{quest.title}</Text>
+        <Text style={styles.questDescription}>{quest.description}</Text>
         <Text style={styles.questReward}>+{quest.xp} XP</Text>
       </View>
       <View
@@ -58,12 +60,12 @@ export function QuestLoadingCard() {
 const styles = StyleSheet.create({
   questCard: {
     alignItems: 'center',
-    backgroundColor: '#242938',
+    backgroundColor: '#171923',
     borderColor: '#3E4661',
-    borderRadius: 14,
+    borderRadius: 10,
     borderWidth: 1,
     flexDirection: 'row',
-    minHeight: 78,
+    minHeight: 74,
     overflow: 'hidden',
     paddingRight: 16,
   },
@@ -88,10 +90,23 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 16,
   },
+  questCategory: {
+    color: '#A970FF',
+    fontSize: 11,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
   questTitle: {
     color: '#F4F1DE',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
+  },
+  questDescription: {
+    color: '#A8B0C7',
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 16,
+    marginTop: 5,
   },
   questReward: {
     color: '#F6C453',

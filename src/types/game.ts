@@ -9,6 +9,8 @@ export type Quest = {
   templateId: string;
   date: string;
   title: string;
+  category: string;
+  description: string;
   xp: number;
   completed: boolean;
 };
@@ -16,6 +18,8 @@ export type Quest = {
 export type QuestTemplate = {
   id: string;
   title: string;
+  category: string;
+  description: string;
   xp: number;
 };
 
@@ -36,8 +40,9 @@ export type WeeklyBattlePreview = {
   completionRate: number;
   result: WeeklyResult;
   flavorText: string;
-  completedQuestCount: number;
-  totalQuestCount: number;
+  victoryDays: number;
+  strongDays: number;
+  legendaryDays: number;
 };
 
 export type FinalizedBattleResult = {
@@ -49,6 +54,22 @@ export type FinalizedBattleResult = {
   createdAt: string;
 };
 
+export type KingdomChecklistFrequency =
+  | 'Weekly'
+  | 'Every 2 Weeks'
+  | 'Every 3 Weeks'
+  | 'Monthly';
+
+export type KingdomChecklistItem = {
+  id: string;
+  templateId: string;
+  weekStart: string;
+  windowKey: string;
+  title: string;
+  frequency: KingdomChecklistFrequency;
+  completed: boolean;
+};
+
 export type GameState = {
   player: Player;
   quests: Quest[];
@@ -56,4 +77,5 @@ export type GameState = {
   today: string;
   weeklyBattle: WeeklyBattlePreview;
   finalizedBattle: FinalizedBattleResult | null;
+  kingdomChecklist: KingdomChecklistItem[];
 };

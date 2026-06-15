@@ -3,6 +3,8 @@ import * as SQLite from 'expo-sqlite';
 import type {
   GameState,
   FinalizedBattleResult,
+  KingdomChecklistFrequency,
+  KingdomChecklistItem,
   Player,
   Quest,
   QuestTemplate,
@@ -16,6 +18,8 @@ type QuestRow = {
   template_id: string;
   date: string;
   title: string;
+  category: string;
+  description: string;
   xp_reward: number;
   completed: number;
 };
@@ -43,9 +47,9 @@ type ShadowRow = {
   week_start: string;
 };
 
-type WeeklyQuestCountRow = {
-  completed_count: number;
-  total_count: number;
+type WeeklyDailyProgressRow = {
+  date: string;
+  daily_progress: number;
 };
 
 type WeeklyResultRow = {
@@ -56,11 +60,23 @@ type WeeklyResultRow = {
   created_at: string;
 };
 
+type KingdomChecklistRow = {
+  id: string;
+  template_id: string;
+  week_start: string;
+  window_key: string;
+  title: string;
+  frequency: KingdomChecklistFrequency;
+  completed: number;
+};
+
 export const XP_GOAL = 100;
 
 const DATABASE_NAME = 'brand-new-me.db';
 const PLAYER_ID = 'player';
 const SHADOW_ID = 'shadow-steward';
+const ONE_WEEK_IN_MS = 7 * 24 * 60 * 60 * 1000;
+const CADENCE_ANCHOR_WEEK_START = '1970-01-05';
 
 export const DEFAULT_PLAYER: Player = {
   id: PLAYER_ID,
@@ -78,12 +94,270 @@ export const DEFAULT_SHADOW: Shadow = {
   weekStart: getWeekStartDateString(),
 };
 
+const DAILY_BASELINE_QUEST_TEMPLATES: QuestTemplate[] = [
+  {
+    id: 'morning-care',
+    title: 'Morning Care',
+    category: 'Appearance',
+    description: 'Skincare morning routine + hair care.',
+    xp: 10,
+  },
+  {
+    id: 'mindfulness',
+    title: 'Mindfulness',
+    category: 'Mind',
+    description: '5 minutes of breathing / mindfulness.',
+    xp: 10,
+  },
+  {
+    id: 'huel-breakfast',
+    title: 'Huel Breakfast',
+    category: 'Fuel',
+    description: 'Huel breakfast + multivitamin.',
+    xp: 15,
+  },
+  {
+    id: 'hydration',
+    title: 'Hydration',
+    category: 'Fuel',
+    description: '2.5-3 liters water.',
+    xp: 10,
+  },
+  {
+    id: 'supplements',
+    title: 'Supplements',
+    category: 'Fuel',
+    description: 'Creatine and daily supplements.',
+    xp: 5,
+  },
+  {
+    id: 'writing',
+    title: 'Writing',
+    category: 'Mind',
+    description: '5-10 minutes writing, ideas, journal, acting notes.',
+    xp: 10,
+  },
+  {
+    id: 'side-project',
+    title: 'Side Project',
+    category: 'Purpose',
+    description: 'At least 1 hour on side project.',
+    xp: 35,
+  },
+  {
+    id: 'sleep-routine',
+    title: 'Sleep Routine',
+    category: 'Recovery',
+    description: 'Screens off 30 minutes before sleep, target 7-8h.',
+    xp: 15,
+  },
+  {
+    id: 'walk-6k-10k-steps',
+    title: 'Walk 6k-10k Steps',
+    category: 'Body',
+    description: 'Walk 6k-10k steps.',
+    xp: 25,
+  },
+];
+
+const WEEKDAY_QUEST_TEMPLATES: Record<number, QuestTemplate[]> = {
+  0: [
+    {
+      id: 'meal-prep',
+      title: 'Meal Prep',
+      category: 'Stewardship',
+      description: 'Prepare simple meals for the week ahead.',
+      xp: 25,
+    },
+    {
+      id: 'grocery-shopping',
+      title: 'Grocery Shopping',
+      category: 'Stewardship',
+      description: 'Stock the kitchen with useful food.',
+      xp: 20,
+    },
+    {
+      id: 'house-reset',
+      title: 'House Reset',
+      category: 'Stewardship',
+      description: 'Reset the home base for the next run.',
+      xp: 25,
+    },
+  ],
+  1: [
+    {
+      id: 'workout-a',
+      title: 'Workout A',
+      category: 'Body',
+      description: 'Complete the scheduled Workout A session.',
+      xp: 25,
+    },
+    {
+      id: 'mobility',
+      title: 'Mobility',
+      category: 'Body',
+      description: '10 minutes mobility / stretching.',
+      xp: 15,
+    },
+  ],
+  2: [
+    {
+      id: 'mobility',
+      title: 'Mobility',
+      category: 'Body',
+      description: '10 minutes mobility / stretching.',
+      xp: 15,
+    },
+  ],
+  3: [
+    {
+      id: 'workout-b',
+      title: 'Workout B',
+      category: 'Body',
+      description: 'Complete the scheduled Workout B session.',
+      xp: 25,
+    },
+    {
+      id: 'mobility',
+      title: 'Mobility',
+      category: 'Body',
+      description: '10 minutes mobility / stretching.',
+      xp: 15,
+    },
+  ],
+  4: [
+    {
+      id: 'mobility',
+      title: 'Mobility',
+      category: 'Body',
+      description: '10 minutes mobility / stretching.',
+      xp: 15,
+    },
+  ],
+  5: [
+    {
+      id: 'workout-c',
+      title: 'Workout C',
+      category: 'Body',
+      description: 'Complete the scheduled Workout C session.',
+      xp: 25,
+    },
+    {
+      id: 'mobility',
+      title: 'Mobility',
+      category: 'Body',
+      description: '10 minutes mobility / stretching.',
+      xp: 15,
+    },
+  ],
+  6: [
+    {
+      id: 'active-recovery',
+      title: 'Active Recovery',
+      category: 'Recovery',
+      description: 'Low-intensity recovery movement.',
+      xp: 20,
+    },
+    {
+      id: 'light-stretching',
+      title: 'Light Stretching',
+      category: 'Recovery',
+      description: 'Easy stretching to stay loose.',
+      xp: 15,
+    },
+  ],
+};
+
+const WORKOUT_CARRYOVER_TEMPLATES: Record<number, QuestTemplate> = {
+  2: {
+    id: 'workout-a-carried-over',
+    title: 'Workout A — Carried Over',
+    category: 'Body',
+    description: 'Complete the postponed Workout A session.',
+    xp: 25,
+  },
+  4: {
+    id: 'workout-b-carried-over',
+    title: 'Workout B — Carried Over',
+    category: 'Body',
+    description: 'Complete the postponed Workout B session.',
+    xp: 25,
+  },
+  6: {
+    id: 'workout-c-carried-over',
+    title: 'Workout C — Carried Over',
+    category: 'Body',
+    description: 'Complete the postponed Workout C session.',
+    xp: 25,
+  },
+};
+
+const PREVIOUS_DAY_WORKOUT_TEMPLATE_IDS: Record<number, string> = {
+  2: 'workout-a',
+  4: 'workout-b',
+  6: 'workout-c',
+};
+
+const KINGDOM_FREQUENCY_ORDER: KingdomChecklistFrequency[] = [
+  'Weekly',
+  'Every 2 Weeks',
+  'Every 3 Weeks',
+  'Monthly',
+];
+
+const KINGDOM_CHECKLIST_TEMPLATES: {
+  id: string;
+  title: string;
+  frequency: KingdomChecklistFrequency;
+}[] = [
+  { id: 'laundry', title: 'Laundry', frequency: 'Weekly' },
+  { id: 'vacuum-sweep', title: 'Vacuum / Sweep', frequency: 'Weekly' },
+  { id: 'mop', title: 'Mop', frequency: 'Weekly' },
+  { id: 'empty-bins', title: 'Empty Bins', frequency: 'Weekly' },
+  {
+    id: 'general-reset-20-30-min',
+    title: 'General Reset 20-30 min',
+    frequency: 'Weekly',
+  },
+  { id: 'fridge-check', title: 'Fridge Check', frequency: 'Weekly' },
+  { id: 'grocery-support', title: 'Grocery Support', frequency: 'Weekly' },
+  { id: 'change-sheets', title: 'Change Sheets', frequency: 'Every 2 Weeks' },
+  {
+    id: 'deep-bathroom-clean',
+    title: 'Deep Bathroom Clean',
+    frequency: 'Every 2 Weeks',
+  },
+  {
+    id: 'mirrors-surfaces',
+    title: 'Mirrors + Surfaces',
+    frequency: 'Every 2 Weeks',
+  },
+  {
+    id: 'full-fridge-clean',
+    title: 'Full Fridge Clean',
+    frequency: 'Every 3 Weeks',
+  },
+  {
+    id: 'pantry-check',
+    title: 'Pantry Check',
+    frequency: 'Every 3 Weeks',
+  },
+  {
+    id: 'decluttering-15-30-min',
+    title: 'Decluttering 15-30 min',
+    frequency: 'Every 3 Weeks',
+  },
+  {
+    id: 'personal-budget-review',
+    title: 'Personal Budget Review',
+    frequency: 'Monthly',
+  },
+];
+
 export const DEFAULT_QUEST_TEMPLATES: QuestTemplate[] = [
-  { id: 'workout', title: 'Workout', xp: 50 },
-  { id: 'mobility', title: 'Mobility', xp: 25 },
-  { id: 'walk', title: 'Walk', xp: 25 },
-  { id: 'huel-breakfast', title: 'Huel Breakfast', xp: 15 },
-  { id: 'side-project', title: 'Side Project', xp: 50 },
+  ...DAILY_BASELINE_QUEST_TEMPLATES,
+  ...Object.values(WEEKDAY_QUEST_TEMPLATES).flat(),
+  ...Object.values(WORKOUT_CARRYOVER_TEMPLATES),
 ];
 
 export function getLocalDateString(date = new Date()) {
@@ -108,14 +382,23 @@ export function getWeekStartDateString(date = new Date()) {
 }
 
 export function getDefaultQuestsForDate(date: string): Quest[] {
-  return DEFAULT_QUEST_TEMPLATES.map((quest) => ({
+  return getQuestTemplatesForDate(date).map((quest) => ({
     id: getQuestInstanceId(date, quest.id),
     templateId: quest.id,
     date,
     title: quest.title,
+    category: quest.category,
+    description: quest.description,
     xp: quest.xp,
     completed: false,
   }));
+}
+
+function getQuestTemplatesForDate(date: string) {
+  const dayOfWeek = parseLocalDate(date).getDay();
+  const scheduledQuests = WEEKDAY_QUEST_TEMPLATES[dayOfWeek] ?? [];
+
+  return [...DAILY_BASELINE_QUEST_TEMPLATES, ...scheduledQuests];
 }
 
 export async function openGameDatabase(today = getLocalDateString()) {
@@ -129,21 +412,30 @@ export async function loadGameState(
   today = getLocalDateString(),
 ): Promise<GameState> {
   await createQuestsFromWeekStartThroughDateIfNeeded(db, today);
+  await createKingdomChecklistForWeekIfNeeded(db, today);
   await rollOverShadowWeekIfNeeded(db, today);
   const weeklyBattle = await calculateCurrentWeekBattlePreview(db, today);
   const finalizedBattle = await getCurrentWeekFinalizedBattle(db, today);
+  const activeKingdomWindowKeys = getActiveKingdomWindowKeys(today);
 
   const playerRow = await db.getFirstAsync<PlayerRow>(
     'SELECT id, total_xp, level FROM player WHERE id = ?',
     PLAYER_ID,
   );
   const questRows = await db.getAllAsync<QuestRow>(
-    'SELECT id, template_id, date, title, xp_reward, completed FROM quests WHERE date = ? ORDER BY rowid ASC',
+    'SELECT id, template_id, date, title, category, description, xp_reward, completed FROM quests WHERE date = ? ORDER BY rowid ASC',
     today,
   );
   const shadowRow = await db.getFirstAsync<ShadowRow>(
     'SELECT id, name, class, description, current_power, max_power, week_start FROM shadow WHERE id = ?',
     SHADOW_ID,
+  );
+  const kingdomChecklistRows = await db.getAllAsync<KingdomChecklistRow>(
+    `SELECT id, template_id, week_start, window_key, title, frequency, completed
+    FROM kingdom_checklist
+    WHERE window_key IN (${activeKingdomWindowKeys.map(() => '?').join(', ')})
+    ORDER BY rowid ASC`,
+    ...activeKingdomWindowKeys,
   );
 
   return {
@@ -153,6 +445,7 @@ export async function loadGameState(
     today,
     weeklyBattle,
     finalizedBattle,
+    kingdomChecklist: kingdomChecklistRows.map(mapKingdomChecklistRow),
   };
 }
 
@@ -175,28 +468,36 @@ export async function calculateCurrentWeekBattlePreview(
 ): Promise<WeeklyBattlePreview> {
   const weekStart = getWeekStartDateString(parseLocalDate(today));
   const weekEnd = getWeekEndDateString(weekStart);
-  const counts = await db.getFirstAsync<WeeklyQuestCountRow>(
+  const dailyProgressRows = await db.getAllAsync<WeeklyDailyProgressRow>(
     `SELECT
-      SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) AS completed_count,
-      COUNT(*) AS total_count
+      date,
+      SUM(CASE WHEN completed = 1 THEN xp_reward ELSE 0 END) AS daily_progress
     FROM quests
-    WHERE date >= ? AND date <= ?`,
+    WHERE date >= ? AND date <= ?
+    GROUP BY date`,
     weekStart,
     weekEnd,
   );
-  const completedQuestCount = counts?.completed_count ?? 0;
-  const totalQuestCount = counts?.total_count ?? 0;
-  const completionRate =
-    totalQuestCount > 0 ? completedQuestCount / totalQuestCount : 0;
-  const result = getWeeklyResult(completionRate);
+  const victoryDays = dailyProgressRows.filter(
+    (row) => row.daily_progress >= 80,
+  ).length;
+  const strongDays = dailyProgressRows.filter(
+    (row) => row.daily_progress >= 100 && row.daily_progress < 150,
+  ).length;
+  const legendaryDays = dailyProgressRows.filter(
+    (row) => row.daily_progress >= 150,
+  ).length;
+  const completionRate = victoryDays / 7;
+  const result = getWeeklyResult(victoryDays);
 
   return {
     weekStart,
     completionRate,
     result,
     flavorText: getWeeklyFlavorText(result),
-    completedQuestCount,
-    totalQuestCount,
+    victoryDays,
+    strongDays,
+    legendaryDays,
   };
 }
 
@@ -246,10 +547,13 @@ export async function toggleQuestInDatabase(
       today,
     );
     await db.runAsync(
-      'UPDATE player SET total_xp = ?, level = ? WHERE id = ?',
+      `INSERT INTO player (id, total_xp, level) VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        total_xp = excluded.total_xp,
+        level = excluded.level`,
+      PLAYER_ID,
       nextTotalXp,
       nextLevel,
-      PLAYER_ID,
     );
     await db.runAsync(
       'UPDATE shadow SET current_power = ? WHERE id = ?',
@@ -302,10 +606,13 @@ export async function resetTodaysQuestsInDatabase(
       today,
     );
     await db.runAsync(
-      'UPDATE player SET total_xp = ?, level = ? WHERE id = ?',
+      `INSERT INTO player (id, total_xp, level) VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        total_xp = excluded.total_xp,
+        level = excluded.level`,
+      PLAYER_ID,
       nextTotalXp,
       nextLevel,
-      PLAYER_ID,
     );
     await db.runAsync(
       'UPDATE shadow SET current_power = ? WHERE id = ?',
@@ -320,12 +627,11 @@ export async function resetAllDataInDatabase(
   today = getLocalDateString(),
 ) {
   await db.withTransactionAsync(async () => {
-    await db.execAsync(`
-      DELETE FROM player;
-      DELETE FROM quests;
-      DELETE FROM shadow;
-      DELETE FROM weekly_results;
-    `);
+    await db.runAsync('DELETE FROM player');
+    await db.runAsync('DELETE FROM quests');
+    await db.runAsync('DELETE FROM shadow');
+    await db.runAsync('DELETE FROM weekly_results');
+    await db.runAsync('DELETE FROM kingdom_checklist');
 
     await db.runAsync(
       'INSERT INTO player (id, total_xp, level) VALUES (?, ?, ?)',
@@ -344,18 +650,87 @@ export async function resetAllDataInDatabase(
       getWeekStartDateString(parseLocalDate(today)),
     );
 
-    for (const quest of getDefaultQuestsForDate(today)) {
+    for (const quest of await getQuestInstancesForDate(db, today)) {
       await db.runAsync(
-        'INSERT INTO quests (id, template_id, date, title, xp_reward, completed) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO quests (id, template_id, date, title, category, description, xp_reward, completed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         quest.id,
         quest.templateId,
         quest.date,
         quest.title,
+        quest.category,
+        quest.description,
+        quest.xp,
+        quest.completed ? 1 : 0,
+      );
+    }
+
+    await createKingdomChecklistForWeekIfNeeded(db, today);
+  });
+
+  await createKingdomChecklistForWeekIfNeeded(db, today);
+}
+
+export async function reseedQuestCatalogForDateInDatabase(
+  db: SQLite.SQLiteDatabase,
+  today = getLocalDateString(),
+) {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM quests WHERE date = ?', today);
+
+    for (const quest of await getQuestInstancesForDate(db, today)) {
+      await db.runAsync(
+        'INSERT INTO quests (id, template_id, date, title, category, description, xp_reward, completed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        quest.id,
+        quest.templateId,
+        quest.date,
+        quest.title,
+        quest.category,
+        quest.description,
         quest.xp,
         quest.completed ? 1 : 0,
       );
     }
   });
+}
+
+export async function toggleKingdomChecklistItemInDatabase(
+  db: SQLite.SQLiteDatabase,
+  itemId: string,
+  today = getLocalDateString(),
+) {
+  const activeKingdomWindowKeys = getActiveKingdomWindowKeys(today);
+  const item = await db.getFirstAsync<KingdomChecklistRow>(
+    `SELECT id, template_id, week_start, window_key, title, frequency, completed
+    FROM kingdom_checklist
+    WHERE id = ? AND window_key IN (${activeKingdomWindowKeys.map(() => '?').join(', ')})`,
+    itemId,
+    ...activeKingdomWindowKeys,
+  );
+
+  if (!item) {
+    return;
+  }
+
+  await db.runAsync(
+    'UPDATE kingdom_checklist SET completed = ? WHERE id = ? AND window_key = ?',
+    item.completed === 1 ? 0 : 1,
+    itemId,
+    item.window_key,
+  );
+}
+
+export async function resetKingdomChecklistForWeekInDatabase(
+  db: SQLite.SQLiteDatabase,
+  today = getLocalDateString(),
+) {
+  const activeKingdomWindowKeys = getActiveKingdomWindowKeys(today);
+  await createKingdomChecklistForWeekIfNeeded(db, today);
+  await db.runAsync(
+    `UPDATE kingdom_checklist
+    SET completed = 0
+    WHERE window_key IN (${activeKingdomWindowKeys.map(() => '?').join(', ')})`,
+    ...activeKingdomWindowKeys,
+  );
 }
 
 export async function setShadowPowerInDatabase(
@@ -476,10 +851,24 @@ async function setupDatabase(db: SQLite.SQLiteDatabase, today: string) {
       created_at TEXT NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS weekly_results_week_start_idx ON weekly_results (week_start);
+    CREATE TABLE IF NOT EXISTS kingdom_checklist (
+      id TEXT PRIMARY KEY NOT NULL,
+      template_id TEXT NOT NULL,
+      week_start TEXT NOT NULL,
+      window_key TEXT NOT NULL,
+      title TEXT NOT NULL,
+      frequency TEXT NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS kingdom_checklist_week_start_idx ON kingdom_checklist (week_start);
   `);
 
   await migrateQuestTableIfNeeded(db, today);
   await migrateShadowTableIfNeeded(db, today);
+  await migrateKingdomChecklistTableIfNeeded(db);
+  await db.execAsync(
+    'CREATE INDEX IF NOT EXISTS kingdom_checklist_window_key_idx ON kingdom_checklist (window_key)',
+  );
 
   await db.runAsync(
     'INSERT OR IGNORE INTO player (id, total_xp, level) VALUES (?, ?, ?)',
@@ -500,6 +889,7 @@ async function setupDatabase(db: SQLite.SQLiteDatabase, today: string) {
   );
 
   await createQuestsFromWeekStartThroughDateIfNeeded(db, today);
+  await createKingdomChecklistForWeekIfNeeded(db, today);
 }
 
 async function rollOverShadowWeekIfNeeded(
@@ -540,6 +930,8 @@ function mapQuestRow(row: QuestRow): Quest {
     templateId: row.template_id,
     date: row.date,
     title: row.title,
+    category: row.category,
+    description: row.description,
     xp: row.xp_reward,
     completed: row.completed === 1,
   };
@@ -568,6 +960,18 @@ function mapWeeklyResultRow(row: WeeklyResultRow): FinalizedBattleResult {
   };
 }
 
+function mapKingdomChecklistRow(row: KingdomChecklistRow): KingdomChecklistItem {
+  return {
+    id: row.id,
+    templateId: row.template_id,
+    weekStart: row.week_start,
+    windowKey: row.window_key,
+    title: row.title,
+    frequency: row.frequency,
+    completed: row.completed === 1,
+  };
+}
+
 async function migrateQuestTableIfNeeded(
   db: SQLite.SQLiteDatabase,
   today: string,
@@ -587,6 +991,7 @@ async function migrateQuestTableIfNeeded(
   }
 
   if (hasDateColumn && hasTemplateIdColumn) {
+    await migrateQuestCatalogColumnsIfNeeded(db, tableInfo);
     return;
   }
 
@@ -599,15 +1004,51 @@ async function migrateQuestTableIfNeeded(
 
   for (const quest of legacyQuests) {
     await db.runAsync(
-      'INSERT OR IGNORE INTO quests (id, template_id, date, title, xp_reward, completed) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT OR IGNORE INTO quests (id, template_id, date, title, category, description, xp_reward, completed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       getQuestInstanceId(today, quest.id),
       quest.id,
       today,
       quest.title,
+      'Legacy',
+      '',
       quest.xp_reward,
       quest.completed,
     );
   }
+}
+
+async function migrateQuestCatalogColumnsIfNeeded(
+  db: SQLite.SQLiteDatabase,
+  tableInfo: { name: string }[],
+) {
+  const hasCategoryColumn = tableInfo.some(
+    (column) => column.name === 'category',
+  );
+  const hasDescriptionColumn = tableInfo.some(
+    (column) => column.name === 'description',
+  );
+
+  if (!hasCategoryColumn) {
+    await db.execAsync('ALTER TABLE quests ADD COLUMN category TEXT');
+  }
+
+  if (!hasDescriptionColumn) {
+    await db.execAsync('ALTER TABLE quests ADD COLUMN description TEXT');
+  }
+
+  for (const quest of DEFAULT_QUEST_TEMPLATES) {
+    await db.runAsync(
+      'UPDATE quests SET category = ?, description = ? WHERE template_id = ? AND (category IS NULL OR description IS NULL)',
+      quest.category,
+      quest.description,
+      quest.id,
+    );
+  }
+
+  await db.runAsync(
+    "UPDATE quests SET category = 'Legacy' WHERE category IS NULL",
+  );
+  await db.runAsync("UPDATE quests SET description = '' WHERE description IS NULL");
 }
 
 async function migrateShadowTableIfNeeded(
@@ -635,6 +1076,67 @@ async function migrateShadowTableIfNeeded(
   );
 }
 
+async function migrateKingdomChecklistTableIfNeeded(db: SQLite.SQLiteDatabase) {
+  const tableInfo = await db.getAllAsync<{ name: string }>(
+    'PRAGMA table_info(kingdom_checklist)',
+  );
+  const hasKingdomChecklistTable = tableInfo.length > 0;
+  const hasWindowKeyColumn = tableInfo.some(
+    (column) => column.name === 'window_key',
+  );
+
+  if (!hasKingdomChecklistTable) {
+    return;
+  }
+
+  if (!hasWindowKeyColumn) {
+    await db.execAsync('ALTER TABLE kingdom_checklist ADD COLUMN window_key TEXT');
+  }
+
+  const rowsToMigrate = await db.getAllAsync<KingdomChecklistRow>(
+    `SELECT
+      id,
+      template_id,
+      week_start,
+      COALESCE(window_key, '') AS window_key,
+      title,
+      frequency,
+      completed
+    FROM kingdom_checklist
+    WHERE window_key IS NULL OR window_key = ''`,
+  );
+
+  for (const row of rowsToMigrate) {
+    const windowKey = getKingdomCadenceWindowKey(row.frequency, row.week_start);
+    const nextId = getKingdomChecklistItemId(windowKey, row.template_id);
+    const existingRow = await db.getFirstAsync<{ completed: number }>(
+      'SELECT completed FROM kingdom_checklist WHERE id = ?',
+      nextId,
+    );
+
+    if (existingRow) {
+      await db.runAsync(
+        'UPDATE kingdom_checklist SET completed = ? WHERE id = ?',
+        existingRow.completed === 1 || row.completed === 1 ? 1 : 0,
+        nextId,
+      );
+      await db.runAsync('DELETE FROM kingdom_checklist WHERE id = ?', row.id);
+      continue;
+    }
+
+    await db.runAsync(
+      'UPDATE kingdom_checklist SET id = ?, window_key = ? WHERE id = ?',
+      nextId,
+      windowKey,
+      row.id,
+    );
+  }
+
+  await db.execAsync(
+    'CREATE INDEX IF NOT EXISTS kingdom_checklist_window_key_idx ON kingdom_checklist (window_key)',
+  );
+}
+
 async function createQuestTable(db: SQLite.SQLiteDatabase) {
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS quests (
@@ -642,6 +1144,8 @@ async function createQuestTable(db: SQLite.SQLiteDatabase) {
       template_id TEXT NOT NULL,
       date TEXT NOT NULL,
       title TEXT NOT NULL,
+      category TEXT NOT NULL,
+      description TEXT NOT NULL,
       xp_reward INTEGER NOT NULL,
       completed INTEGER NOT NULL DEFAULT 0
     );
@@ -653,26 +1157,73 @@ async function createQuestsForDateIfNeeded(
   db: SQLite.SQLiteDatabase,
   date: string,
 ) {
-  const existingQuest = await db.getFirstAsync<{ id: string }>(
-    'SELECT id FROM quests WHERE date = ? LIMIT 1',
-    date,
-  );
-
-  if (existingQuest) {
-    return;
-  }
-
-  for (const quest of getDefaultQuestsForDate(date)) {
+  for (const quest of await getQuestInstancesForDate(db, date)) {
     await db.runAsync(
-      'INSERT OR IGNORE INTO quests (id, template_id, date, title, xp_reward, completed) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT OR IGNORE INTO quests (id, template_id, date, title, category, description, xp_reward, completed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       quest.id,
       quest.templateId,
       quest.date,
       quest.title,
+      quest.category,
+      quest.description,
       quest.xp,
       quest.completed ? 1 : 0,
     );
   }
+}
+
+async function getQuestInstancesForDate(
+  db: SQLite.SQLiteDatabase,
+  date: string,
+) {
+  const quests = getDefaultQuestsForDate(date);
+  const carryoverTemplate = await getCarryoverWorkoutTemplateForDate(db, date);
+
+  if (!carryoverTemplate) {
+    return quests;
+  }
+
+  return [
+    ...quests,
+    {
+      id: getQuestInstanceId(date, carryoverTemplate.id),
+      templateId: carryoverTemplate.id,
+      date,
+      title: carryoverTemplate.title,
+      category: carryoverTemplate.category,
+      description: carryoverTemplate.description,
+      xp: carryoverTemplate.xp,
+      completed: false,
+    },
+  ];
+}
+
+async function getCarryoverWorkoutTemplateForDate(
+  db: SQLite.SQLiteDatabase,
+  date: string,
+) {
+  const dayOfWeek = parseLocalDate(date).getDay();
+  const previousWorkoutTemplateId =
+    PREVIOUS_DAY_WORKOUT_TEMPLATE_IDS[dayOfWeek];
+
+  if (!previousWorkoutTemplateId) {
+    return null;
+  }
+
+  const previousDate = parseLocalDate(date);
+  previousDate.setDate(previousDate.getDate() - 1);
+  const previousDateString = getLocalDateString(previousDate);
+  const previousWorkout = await db.getFirstAsync<{ completed: number }>(
+    'SELECT completed FROM quests WHERE date = ? AND template_id = ?',
+    previousDateString,
+    previousWorkoutTemplateId,
+  );
+
+  if (!previousWorkout || previousWorkout.completed === 1) {
+    return null;
+  }
+
+  return WORKOUT_CARRYOVER_TEMPLATES[dayOfWeek] ?? null;
 }
 
 async function createQuestsFromWeekStartThroughDateIfNeeded(
@@ -689,8 +1240,70 @@ async function createQuestsFromWeekStartThroughDateIfNeeded(
   }
 }
 
+async function createKingdomChecklistForWeekIfNeeded(
+  db: SQLite.SQLiteDatabase,
+  today: string,
+) {
+  const weekStart = getWeekStartDateString(parseLocalDate(today));
+
+  for (const item of KINGDOM_CHECKLIST_TEMPLATES) {
+    const windowKey = getKingdomCadenceWindowKey(item.frequency, today);
+
+    await db.runAsync(
+      'INSERT OR IGNORE INTO kingdom_checklist (id, template_id, week_start, window_key, title, frequency, completed) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      getKingdomChecklistItemId(windowKey, item.id),
+      item.id,
+      weekStart,
+      windowKey,
+      item.title,
+      item.frequency,
+      0,
+    );
+  }
+}
+
 function getQuestInstanceId(date: string, templateId: string) {
   return `${date}:${templateId}`;
+}
+
+function getActiveKingdomWindowKeys(date: string) {
+  return KINGDOM_FREQUENCY_ORDER.map((frequency) =>
+    getKingdomCadenceWindowKey(frequency, date),
+  );
+}
+
+function getKingdomCadenceWindowKey(
+  frequency: KingdomChecklistFrequency,
+  date: string,
+) {
+  switch (frequency) {
+    case 'Weekly':
+      return `kingdom:weekly:${getWeekStartDateString(parseLocalDate(date))}`;
+    case 'Every 2 Weeks':
+      return `kingdom:biweekly:${getMultiWeekWindowStartDateString(date, 2)}`;
+    case 'Every 3 Weeks':
+      return `kingdom:triweekly:${getMultiWeekWindowStartDateString(date, 3)}`;
+    case 'Monthly':
+      return `kingdom:monthly:${date.slice(0, 7)}`;
+  }
+}
+
+function getMultiWeekWindowStartDateString(date: string, cadenceWeeks: number) {
+  const weekStart = parseLocalDate(getWeekStartDateString(parseLocalDate(date)));
+  const anchor = parseLocalDate(CADENCE_ANCHOR_WEEK_START);
+  const weeksSinceAnchor = Math.floor(
+    (weekStart.getTime() - anchor.getTime()) / ONE_WEEK_IN_MS,
+  );
+  const windowStartOffsetWeeks =
+    Math.floor(weeksSinceAnchor / cadenceWeeks) * cadenceWeeks;
+  const windowStart = new Date(anchor);
+  windowStart.setDate(anchor.getDate() + windowStartOffsetWeeks * 7);
+
+  return getLocalDateString(windowStart);
+}
+
+function getKingdomChecklistItemId(windowKey: string, templateId: string) {
+  return `${windowKey}:${templateId}`;
 }
 
 function getWeekEndDateString(weekStart: string) {
@@ -706,12 +1319,12 @@ function parseLocalDate(date: string) {
   return new Date(year, month - 1, day);
 }
 
-function getWeeklyResult(completionRate: number): WeeklyResult {
-  if (completionRate >= 0.8) {
+function getWeeklyResult(victoryDays: number): WeeklyResult {
+  if (victoryDays >= 5) {
     return 'Victory';
   }
 
-  if (completionRate >= 0.6) {
+  if (victoryDays === 4) {
     return 'Draw';
   }
 
