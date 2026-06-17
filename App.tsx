@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import {
+  Animated,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -10,15 +11,18 @@ import {
   View,
 } from 'react-native';
 
+import { DarkEmpressCard } from './src/components/DarkEmpressCard';
 import { FinalizedBattleCard } from './src/components/FinalizedBattleCard';
 import { HeroSprite } from './src/components/HeroSprite';
 import { QuestCard, QuestLoadingCard } from './src/components/QuestCard';
-import { ShadowCard } from './src/components/ShadowCard';
 import { WeeklyBattlePreview } from './src/components/WeeklyBattlePreview';
 import {
+  BONUS_EFFORT_TEMPLATES,
+  DEFAULT_HERO_ATTRIBUTES,
   DEFAULT_PLAYER,
   DEFAULT_SHADOW,
   clearCurrentWeekResultInDatabase,
+  completeBonusQuestInDatabase,
   finalizeCurrentWeekInDatabase,
   getDefaultQuestsForDate,
   getLocalDateString,
@@ -36,10 +40,12 @@ import {
 } from './src/database/db';
 import type {
   FinalizedBattleResult,
+  HeroAttributes,
   KingdomChecklistFrequency,
   KingdomChecklistItem,
   Player,
   Quest,
+  QuestTemplate,
   Shadow,
 } from './src/types/game';
 import type { WeeklyBattlePreview as WeeklyBattlePreviewData } from './src/types/game';
@@ -48,7 +54,8 @@ const DEFAULT_WEEKLY_BATTLE: WeeklyBattlePreviewData = {
   weekStart: getLocalDateString(),
   completionRate: 0,
   result: 'Defeat',
-  flavorText: 'Reset. Learn. Begin again.',
+  flavorText:
+    'The Dark Empress is displeased.\n\nEntropy spreads through the kingdom.',
   victoryDays: 0,
   strongDays: 0,
   legendaryDays: 0,
@@ -65,16 +72,38 @@ const QUEST_CATEGORY_ORDER = [
 ];
 
 const DAILY_PROGRESS_TARGET = 100;
+const HERO_XP_TOAST_DURATION_MS = 1500;
+const HERO_XP_ENTRY_ANIMATION_MS = 1000;
+const DAILY_PROGRESS_ENTRY_ANIMATION_MS = 800;
+const HERO_ATTRIBUTE_ENTRY_ANIMATION_MS = 850;
+const LEVEL_UP_OVERLAY_DURATION_MS = 2600;
 
 type AppView = 'home' | 'quests' | 'hero' | 'shadow' | 'kingdom';
 
-const HERO_STAT_PLACEHOLDERS = [
-  'Body',
-  'Mind',
-  'Fuel',
-  'Purpose',
-  'Recovery',
+type LevelUpEvent = {
+  attributeGains: AttributeGainDisplay[];
+  currentTitle: string;
+  newTitle: string;
+  previousLevel: number;
+  nextLevel: number;
+};
+
+type AttributeGainDisplay = {
+  label: string;
+  value: number;
+};
+
+type HeroAttributeKey = 'body' | 'mind' | 'purpose';
+
+const HERO_ATTRIBUTE_KEYS: {
+  key: HeroAttributeKey;
+  label: string;
+}[] = [
+  { key: 'body', label: 'Body' },
+  { key: 'mind', label: 'Mind' },
+  { key: 'purpose', label: 'Purpose' },
 ];
+const HERO_ATTRIBUTE_MILESTONES = [100, 500, 1000, 2500, 5000];
 
 const KINGDOM_FREQUENCY_ORDER: KingdomChecklistFrequency[] = [
   'Weekly',
@@ -84,6 +113,29 @@ const KINGDOM_FREQUENCY_ORDER: KingdomChecklistFrequency[] = [
 ];
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const WEEKDAY_LABELS = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+const MONTH_LABELS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
 
 function parseLocalDateString(date: string) {
   const [year, month, day] = date.split('-').map(Number);
@@ -103,6 +155,17 @@ function getSimulatedDayNumber(startDate: string, currentDate: string) {
   const currentTime = parseLocalDateString(currentDate).getTime();
 
   return Math.round((currentTime - startTime) / DAY_IN_MS) + 1;
+}
+
+function getHomeDateParts(date: string) {
+  const localDate = parseLocalDateString(date);
+
+  return {
+    weekday: WEEKDAY_LABELS[localDate.getDay()],
+    fullDate: `${localDate.getDate()} ${
+      MONTH_LABELS[localDate.getMonth()]
+    } ${localDate.getFullYear()}`,
+  };
 }
 
 function getDailyProgressMessage(dailyProgress: number) {
@@ -161,10 +224,50 @@ function getHeroPath(level: number) {
   return 'Path: Reclaiming Order';
 }
 
+function getHeroXpProgressPercentValue(player: Player) {
+  const currentLevelXp = player.totalXp - (player.level - 1) * XP_GOAL;
+
+  return Math.min(Math.max((currentLevelXp / XP_GOAL) * 100, 0), 100);
+}
+
+function getLevelRecapAttributeGains(
+  previousHeroAttributes: HeroAttributes,
+  nextHeroAttributes: HeroAttributes,
+): AttributeGainDisplay[] {
+  const levelStartAttributes = {
+    body: previousHeroAttributes.levelStartBody,
+    mind: previousHeroAttributes.levelStartMind,
+    purpose: previousHeroAttributes.levelStartPurpose,
+  };
+
+  return HERO_ATTRIBUTE_KEYS.map((attribute) => ({
+    label: attribute.label,
+    value: Math.max(
+      nextHeroAttributes[attribute.key] - levelStartAttributes[attribute.key],
+      0,
+    ),
+  })).filter((attribute) => attribute.value > 0);
+}
+
+function getHeroAttributeMilestone(value: number) {
+  const baseMilestone = HERO_ATTRIBUTE_MILESTONES.find(
+    (milestone) => value <= milestone,
+  );
+
+  if (baseMilestone) {
+    return baseMilestone;
+  }
+
+  return Math.ceil(value / 5000) * 5000;
+}
+
 export default function App() {
   const initialToday = getLocalDateString();
   const [db, setDb] = useState<SQLiteDatabase | null>(null);
   const [player, setPlayer] = useState<Player>(DEFAULT_PLAYER);
+  const [heroAttributes, setHeroAttributes] = useState<HeroAttributes>(
+    DEFAULT_HERO_ATTRIBUTES,
+  );
   const [today, setToday] = useState(initialToday);
   const [quests, setQuests] = useState<Quest[]>(
     getDefaultQuestsForDate(initialToday),
@@ -181,12 +284,24 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [activeView, setActiveView] = useState<AppView>('home');
+  const [isBonusPickerOpen, setIsBonusPickerOpen] = useState(false);
   const [simulationStartDate, setSimulationStartDate] = useState(initialToday);
   const [debugDateOverride, setDebugDateOverride] = useState<string | null>(
     null,
   );
+  const [xpToastAmount, setXpToastAmount] = useState<number | null>(null);
+  const [levelUpEvent, setLevelUpEvent] = useState<LevelUpEvent | null>(null);
   const completingQuestIdsRef = useRef(new Set<string>());
   const togglingKingdomItemIdsRef = useRef(new Set<string>());
+  const heroXpProgressAnim = useRef(new Animated.Value(0)).current;
+  const dailyProgressAnim = useRef(new Animated.Value(0)).current;
+  const heroAttributeAnim = useRef(new Animated.Value(0)).current;
+  const xpToastOpacity = useRef(new Animated.Value(0)).current;
+  const xpToastTranslateY = useRef(new Animated.Value(12)).current;
+  const levelUpOpacity = useRef(new Animated.Value(0)).current;
+  const xpToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const levelUpTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousPlayerRef = useRef<Player>(DEFAULT_PLAYER);
 
   useEffect(() => {
     let isMounted = true;
@@ -201,7 +316,9 @@ export default function App() {
       }
 
       setDb(database);
+      previousPlayerRef.current = gameState.player;
       setPlayer(gameState.player);
+      setHeroAttributes(gameState.heroAttributes);
       setToday(gameState.today);
       setQuests(gameState.quests);
       setShadow(gameState.shadow);
@@ -223,6 +340,205 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const previousPlayer = previousPlayerRef.current;
+    const nextPercent = getHeroXpProgressPercentValue(player);
+
+    heroXpProgressAnim.stopAnimation();
+
+    if (player.level > previousPlayer.level) {
+      Animated.sequence([
+        Animated.timing(heroXpProgressAnim, {
+          duration: 450,
+          toValue: 100,
+          useNativeDriver: false,
+        }),
+        Animated.timing(heroXpProgressAnim, {
+          duration: 1,
+          toValue: 0,
+          useNativeDriver: false,
+        }),
+        Animated.timing(heroXpProgressAnim, {
+          duration: 500,
+          toValue: nextPercent,
+          useNativeDriver: false,
+        }),
+      ]).start();
+    } else {
+      Animated.timing(heroXpProgressAnim, {
+        duration: 500,
+        toValue: nextPercent,
+        useNativeDriver: false,
+      }).start();
+    }
+
+    previousPlayerRef.current = player;
+  }, [heroXpProgressAnim, player]);
+
+  useEffect(() => {
+    if (isLoading || (activeView !== 'home' && activeView !== 'hero')) {
+      return;
+    }
+
+    heroXpProgressAnim.stopAnimation();
+    heroXpProgressAnim.setValue(0);
+    Animated.timing(heroXpProgressAnim, {
+      duration: HERO_XP_ENTRY_ANIMATION_MS,
+      toValue: getHeroXpProgressPercentValue(player),
+      useNativeDriver: false,
+    }).start();
+  }, [
+    activeView,
+    heroXpProgressAnim,
+    isLoading,
+    player.level,
+    player.totalXp,
+  ]);
+
+  useEffect(() => {
+    if (isLoading || activeView !== 'home') {
+      return;
+    }
+
+    const nextDailyProgress = quests
+      .filter((quest) => quest.completed)
+      .reduce((total, quest) => total + quest.xp, 0);
+
+    dailyProgressAnim.stopAnimation();
+    dailyProgressAnim.setValue(0);
+    Animated.timing(dailyProgressAnim, {
+      duration: DAILY_PROGRESS_ENTRY_ANIMATION_MS,
+      toValue: Math.min(nextDailyProgress, DAILY_PROGRESS_TARGET),
+      useNativeDriver: false,
+    }).start();
+  }, [activeView, dailyProgressAnim, isLoading, quests, today]);
+
+  useEffect(() => {
+    if (isLoading || activeView !== 'hero') {
+      return;
+    }
+
+    heroAttributeAnim.stopAnimation();
+    heroAttributeAnim.setValue(0);
+    Animated.timing(heroAttributeAnim, {
+      duration: HERO_ATTRIBUTE_ENTRY_ANIMATION_MS,
+      toValue: 1,
+      useNativeDriver: false,
+    }).start();
+  }, [
+    activeView,
+    heroAttributeAnim,
+    heroAttributes.body,
+    heroAttributes.mind,
+    heroAttributes.purpose,
+    isLoading,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (xpToastTimeoutRef.current) {
+        clearTimeout(xpToastTimeoutRef.current);
+      }
+
+      if (levelUpTimeoutRef.current) {
+        clearTimeout(levelUpTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const showXpToast = (xpAmount: number) => {
+    if (xpAmount <= 0) {
+      return;
+    }
+
+    if (xpToastTimeoutRef.current) {
+      clearTimeout(xpToastTimeoutRef.current);
+    }
+
+    setXpToastAmount(xpAmount);
+    xpToastOpacity.stopAnimation();
+    xpToastTranslateY.stopAnimation();
+    xpToastOpacity.setValue(0);
+    xpToastTranslateY.setValue(12);
+
+    Animated.parallel([
+      Animated.sequence([
+        Animated.timing(xpToastOpacity, {
+          duration: 180,
+          toValue: 1,
+          useNativeDriver: true,
+        }),
+        Animated.delay(950),
+        Animated.timing(xpToastOpacity, {
+          duration: 320,
+          toValue: 0,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.timing(xpToastTranslateY, {
+        duration: HERO_XP_TOAST_DURATION_MS,
+        toValue: -8,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    xpToastTimeoutRef.current = setTimeout(() => {
+      setXpToastAmount(null);
+    }, HERO_XP_TOAST_DURATION_MS);
+  };
+
+  const showLevelUpOverlay = (
+    previousLevel: number,
+    nextLevel: number,
+    attributeGains: AttributeGainDisplay[],
+  ) => {
+    if (nextLevel <= previousLevel) {
+      return;
+    }
+
+    if (levelUpTimeoutRef.current) {
+      clearTimeout(levelUpTimeoutRef.current);
+    }
+
+    setLevelUpEvent({
+      attributeGains,
+      currentTitle: getHeroTitle(previousLevel),
+      newTitle: getHeroTitle(nextLevel),
+      previousLevel,
+      nextLevel,
+    });
+    levelUpOpacity.stopAnimation();
+    levelUpOpacity.setValue(0);
+
+    Animated.sequence([
+      Animated.timing(levelUpOpacity, {
+        duration: 250,
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+      Animated.delay(1900),
+      Animated.timing(levelUpOpacity, {
+        duration: 350,
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    levelUpTimeoutRef.current = setTimeout(() => {
+      setLevelUpEvent(null);
+    }, LEVEL_UP_OVERLAY_DURATION_MS);
+  };
+
+  const showQuestCompletionFeedback = (
+    previousPlayer: Player,
+    nextPlayer: Player,
+    xpAmount: number,
+    attributeGains: AttributeGainDisplay[],
+  ) => {
+    showXpToast(xpAmount);
+    showLevelUpOverlay(previousPlayer.level, nextPlayer.level, attributeGains);
+  };
+
   const toggleQuest = async (quest: Quest) => {
     if (!db || completingQuestIdsRef.current.has(quest.id)) {
       return;
@@ -231,15 +547,30 @@ export default function App() {
     completingQuestIdsRef.current.add(quest.id);
 
     try {
+      const previousPlayer = player;
+      const previousHeroAttributes = heroAttributes;
       await toggleQuestInDatabase(db, quest.id, today);
       const gameState = await loadGameState(db, today);
       setPlayer(gameState.player);
+      setHeroAttributes(gameState.heroAttributes);
       setToday(gameState.today);
       setQuests(gameState.quests);
       setShadow(gameState.shadow);
       setWeeklyBattle(gameState.weeklyBattle);
       setFinalizedBattle(gameState.finalizedBattle);
       setKingdomChecklist(gameState.kingdomChecklist);
+
+      if (!quest.completed && gameState.player.totalXp > previousPlayer.totalXp) {
+        showQuestCompletionFeedback(
+          previousPlayer,
+          gameState.player,
+          quest.xp,
+          getLevelRecapAttributeGains(
+            previousHeroAttributes,
+            gameState.heroAttributes,
+          ),
+        );
+      }
     } catch (error) {
       console.error('Failed to complete quest', error);
     } finally {
@@ -250,12 +581,15 @@ export default function App() {
   const reloadState = async (database: SQLiteDatabase, currentDate: string) => {
     const gameState = await loadGameState(database, currentDate);
     setPlayer(gameState.player);
+    setHeroAttributes(gameState.heroAttributes);
     setToday(gameState.today);
     setQuests(gameState.quests);
     setShadow(gameState.shadow);
     setWeeklyBattle(gameState.weeklyBattle);
     setFinalizedBattle(gameState.finalizedBattle);
     setKingdomChecklist(gameState.kingdomChecklist);
+
+    return gameState;
   };
 
   const toggleKingdomChecklistItem = async (item: KingdomChecklistItem) => {
@@ -272,6 +606,34 @@ export default function App() {
       console.error('Failed to toggle kingdom checklist item', error);
     } finally {
       togglingKingdomItemIdsRef.current.delete(item.id);
+    }
+  };
+
+  const addBonusEffort = async (questTemplate: QuestTemplate) => {
+    if (!db) {
+      return;
+    }
+
+    try {
+      const previousPlayer = player;
+      const previousHeroAttributes = heroAttributes;
+      await completeBonusQuestInDatabase(db, questTemplate.id, today);
+      setIsBonusPickerOpen(false);
+      const gameState = await reloadState(db, today);
+
+      if (gameState.player.totalXp > previousPlayer.totalXp) {
+        showQuestCompletionFeedback(
+          previousPlayer,
+          gameState.player,
+          questTemplate.xp,
+          getLevelRecapAttributeGains(
+            previousHeroAttributes,
+            gameState.heroAttributes,
+          ),
+        );
+      }
+    } catch (error) {
+      console.error('Failed to add bonus effort', error);
     }
   };
 
@@ -319,23 +681,30 @@ export default function App() {
 
   const heroTitle = getHeroTitle(player.level);
   const heroPath = getHeroPath(player.level);
-  const nextLevelTotalXp = player.level * XP_GOAL;
-  const heroXpProgressPercent = `${Math.min(
-    (player.totalXp / nextLevelTotalXp) * 100,
-    100,
-  )}%` as `${number}%`;
+  const homeDate = getHomeDateParts(today);
+  const currentLevelXp = player.totalXp - (player.level - 1) * XP_GOAL;
+  const heroXpProgressWidth = heroXpProgressAnim.interpolate({
+    inputRange: [0, 100],
+    outputRange: ['0%', '100%'],
+  });
   const dailyProgress = quests
     .filter((quest) => quest.completed)
     .reduce((total, quest) => total + quest.xp, 0);
-  const dailyProgressPercent = `${Math.min(
-    dailyProgress,
-    DAILY_PROGRESS_TARGET,
-  )}%` as `${number}%`;
+  const dailyProgressWidth = dailyProgressAnim.interpolate({
+    inputRange: [0, DAILY_PROGRESS_TARGET],
+    outputRange: ['0%', '100%'],
+  });
   const dailyProgressMessage = getDailyProgressMessage(dailyProgress);
   const questGroups = QUEST_CATEGORY_ORDER.map((category) => ({
     category,
     quests: quests.filter((quest) => quest.category === category),
   })).filter((group) => group.quests.length > 0);
+  const todaysQuestTemplateIds = new Set(
+    quests.map((quest) => quest.templateId),
+  );
+  const availableBonusEfforts = BONUS_EFFORT_TEMPLATES.filter(
+    (questTemplate) => !todaysQuestTemplateIds.has(questTemplate.id),
+  );
   const kingdomChecklistGroups = KINGDOM_FREQUENCY_ORDER.map((frequency) => ({
     frequency,
     items: kingdomChecklist.filter((item) => item.frequency === frequency),
@@ -351,16 +720,10 @@ export default function App() {
       >
         {activeView === 'home' ? (
           <>
-            {isDebugOpen ? (
-              <View style={styles.simulatedDayBanner}>
-                <Text style={styles.simulatedDayTitle}>
-                  Day {simulatedDayNumber}
-                </Text>
-                <Text style={styles.simulatedDayDate}>
-                  Current Test Date: {today}
-                </Text>
-              </View>
-            ) : null}
+            <View style={styles.homeDateBlock}>
+              <Text style={styles.homeDateWeekday}>{homeDate.weekday}</Text>
+              <Text style={styles.homeDateFull}>{homeDate.fullDate}</Text>
+            </View>
 
             <Pressable
               accessibilityRole="button"
@@ -377,15 +740,15 @@ export default function App() {
                 Total XP: {player.totalXp}
               </Text>
               <View style={styles.heroXpTrack}>
-                <View
+                <Animated.View
                   style={[
                     styles.heroXpFill,
-                    { width: heroXpProgressPercent },
+                    { width: heroXpProgressWidth },
                   ]}
                 />
               </View>
               <Text style={styles.homeHeroXpMeta}>
-                {player.totalXp} / {nextLevelTotalXp}
+                {currentLevelXp} / {XP_GOAL}
               </Text>
               <Text style={styles.heroSpriteHint}>View Hero Progress</Text>
             </Pressable>
@@ -415,7 +778,7 @@ export default function App() {
                 style={styles.shadowActionButton}
               >
                 <Text style={styles.shadowActionButtonText}>
-                  WEEKLY BATTLE
+                  WEEKLY CHALLENGE
                 </Text>
               </Pressable>
             </View>
@@ -428,10 +791,10 @@ export default function App() {
                 </Text>
               </View>
               <View style={styles.dailyProgressTrack}>
-                <View
+                <Animated.View
                   style={[
                     styles.dailyProgressFill,
-                    { width: dailyProgressPercent },
+                    { width: dailyProgressWidth },
                   ]}
                 />
               </View>
@@ -457,7 +820,7 @@ export default function App() {
                 <View style={styles.debugActions}>
                   <View style={styles.debugMetaCard}>
                     <Text style={styles.debugMetaText}>
-                      Simulated Day: Day {simulatedDayNumber}
+                      Simulation Index: {simulatedDayNumber}
                     </Text>
                     <Text style={styles.debugMetaText}>
                       Current Test Date: {today}
@@ -656,6 +1019,52 @@ export default function App() {
                     ))
                   : null}
               </View>
+
+              {!isLoading ? (
+                <View style={styles.bonusEffortCard}>
+                  <Text style={styles.bonusEffortTitle}>BONUS EFFORT</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() =>
+                      setIsBonusPickerOpen((isOpen) => !isOpen)
+                    }
+                    style={styles.bonusEffortButton}
+                  >
+                    <Text style={styles.bonusEffortButtonText}>
+                      + Add completed activity
+                    </Text>
+                  </Pressable>
+
+                  {isBonusPickerOpen ? (
+                    <View style={styles.bonusOptionList}>
+                      {availableBonusEfforts.length > 0 ? (
+                        availableBonusEfforts.map((questTemplate) => (
+                          <Pressable
+                            accessibilityRole="button"
+                            key={questTemplate.id}
+                            onPress={() => addBonusEffort(questTemplate)}
+                            style={styles.bonusOption}
+                          >
+                            <View style={styles.bonusOptionTextBlock}>
+                              <Text style={styles.bonusOptionTitle}>
+                                {questTemplate.title}
+                              </Text>
+                              <Text style={styles.bonusOptionMeta}>
+                                {questTemplate.category} · +{questTemplate.xp} XP
+                              </Text>
+                            </View>
+                            <Text style={styles.bonusOptionAdd}>Add</Text>
+                          </Pressable>
+                        ))
+                      ) : (
+                        <Text style={styles.bonusEmptyText}>
+                          No bonus activities available today.
+                        </Text>
+                      )}
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
           </>
         ) : null}
@@ -756,36 +1165,50 @@ export default function App() {
                 Total XP: {player.totalXp}
               </Text>
               <View style={styles.heroXpTrack}>
-                <View
+                <Animated.View
                   style={[
                     styles.heroXpFill,
-                    { width: heroXpProgressPercent },
+                    { width: heroXpProgressWidth },
                   ]}
                 />
               </View>
               <Text style={styles.heroProgressMeta}>
-                {player.totalXp} / {nextLevelTotalXp}
+                {currentLevelXp} / {XP_GOAL}
               </Text>
             </View>
 
             <View style={styles.heroProgressCard}>
               <Text style={styles.heroProgressTitle}>ATTRIBUTES</Text>
-              {HERO_STAT_PLACEHOLDERS.map((stat, index) => (
-                <View key={stat} style={styles.statRow}>
-                  <View style={styles.statTextBlock}>
-                    <Text style={styles.statLabel}>{stat}</Text>
-                    <Text style={styles.statValue}>Awakening</Text>
+              {HERO_ATTRIBUTE_KEYS.map((attribute) => {
+                const attributeValue = heroAttributes[attribute.key];
+                const attributeMilestone =
+                  getHeroAttributeMilestone(attributeValue);
+                const attributePercent =
+                  (attributeValue / attributeMilestone) * 100;
+                const attributeWidth = heroAttributeAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0%', `${attributePercent}%`],
+                });
+
+                return (
+                  <View key={attribute.key} style={styles.statRow}>
+                    <View style={styles.statTextBlock}>
+                      <Text style={styles.statLabel}>{attribute.label}</Text>
+                      <Text style={styles.statValue}>
+                        {attributeValue} / {attributeMilestone}
+                      </Text>
+                    </View>
+                    <View style={styles.statBarTrack}>
+                      <Animated.View
+                        style={[
+                          styles.statBarFill,
+                          { width: attributeWidth },
+                        ]}
+                      />
+                    </View>
                   </View>
-                  <View style={styles.statBarTrack}>
-                    <View
-                      style={[
-                        styles.statBarFill,
-                        { width: `${34 + index * 7}%` as `${number}%` },
-                      ]}
-                    />
-                  </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
           </>
         ) : null}
@@ -800,8 +1223,12 @@ export default function App() {
               <Text style={styles.backButtonText}>Back</Text>
             </Pressable>
 
-            <Text style={styles.modalTitle}>SHADOW BATTLE</Text>
-            <ShadowCard shadow={shadow} />
+            <Text style={styles.modalTitle}>WEEKLY CHALLENGE</Text>
+            <DarkEmpressCard
+              currentPower={shadow.currentPower}
+              maxPower={shadow.maxPower}
+              result={finalizedBattle?.result}
+            />
             <WeeklyBattlePreview weeklyBattle={weeklyBattle} />
             {finalizedBattle ? (
               <FinalizedBattleCard finalizedBattle={finalizedBattle} />
@@ -809,6 +1236,62 @@ export default function App() {
           </>
         ) : null}
       </ScrollView>
+
+      {xpToastAmount ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.xpToast,
+            {
+              opacity: xpToastOpacity,
+              transform: [{ translateY: xpToastTranslateY }],
+            },
+          ]}
+        >
+          <Text style={styles.xpToastText}>+{xpToastAmount} XP</Text>
+        </Animated.View>
+      ) : null}
+
+      {levelUpEvent ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.levelUpOverlay, { opacity: levelUpOpacity }]}
+        >
+          <View style={styles.levelUpCard}>
+            <Text style={styles.levelUpTitle}>LEVEL UP!</Text>
+            <Text style={styles.levelUpLevelText}>
+              Level {levelUpEvent.previousLevel}
+            </Text>
+            <Text style={styles.levelUpArrow}>↓</Text>
+            <Text style={styles.levelUpNewLevelText}>
+              Level {levelUpEvent.nextLevel}
+            </Text>
+            <Text style={styles.levelUpTitleMeta}>
+              Title: {levelUpEvent.currentTitle}
+            </Text>
+            {levelUpEvent.newTitle !== levelUpEvent.currentTitle ? (
+              <Text style={styles.levelUpNewTitleMeta}>
+                New Title: {levelUpEvent.newTitle}
+              </Text>
+            ) : null}
+            {levelUpEvent.attributeGains.length > 0 ? (
+              <View style={styles.levelUpStatsBox}>
+                <Text style={styles.levelUpStatsLabel}>
+                  Stats gained this level:
+                </Text>
+                {levelUpEvent.attributeGains.map((attribute) => (
+                  <Text
+                    key={attribute.label}
+                    style={styles.levelUpStatsValue}
+                  >
+                    {attribute.label} +{attribute.value}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        </Animated.View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -817,6 +1300,7 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#171923',
+    position: 'relative',
   },
   container: {
     flexGrow: 1,
@@ -843,6 +1327,22 @@ const styles = StyleSheet.create({
     color: '#F4F1DE',
     fontSize: 13,
     fontWeight: '900',
+  },
+  homeDateBlock: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  homeDateWeekday: {
+    color: '#A8B0C7',
+    fontSize: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  homeDateFull: {
+    color: '#F4F1DE',
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 2,
   },
   heroTitleBlock: {
     alignItems: 'center',
@@ -1130,6 +1630,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   heroXpTrack: {
+    alignSelf: 'stretch',
     backgroundColor: '#171923',
     borderColor: '#3E4661',
     borderRadius: 8,
@@ -1361,27 +1862,180 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 10,
   },
-  simulatedDayBanner: {
+  xpToast: {
+    alignSelf: 'center',
     backgroundColor: '#242938',
     borderColor: '#F6C453',
+    borderRadius: 999,
+    borderWidth: 1,
+    bottom: 26,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    position: 'absolute',
+    shadowColor: '#F6C453',
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+  },
+  xpToastText: {
+    color: '#F6C453',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  levelUpOverlay: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(23, 25, 35, 0.72)',
+    bottom: 0,
+    justifyContent: 'center',
+    left: 0,
+    paddingHorizontal: 24,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  levelUpCard: {
+    alignItems: 'center',
+    backgroundColor: '#242938',
+    borderColor: '#A970FF',
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 28,
+    paddingVertical: 26,
+    shadowColor: '#A970FF',
+    shadowOpacity: 0.35,
+    shadowRadius: 22,
+    width: '100%',
+  },
+  levelUpTitle: {
+    color: '#F6C453',
+    fontSize: 28,
+    fontWeight: '900',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  levelUpLevelText: {
+    color: '#A8B0C7',
+    fontSize: 18,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  levelUpArrow: {
+    color: '#A970FF',
+    fontSize: 24,
+    fontWeight: '900',
+    marginVertical: 8,
+  },
+  levelUpNewLevelText: {
+    color: '#F4F1DE',
+    fontSize: 24,
+    fontWeight: '900',
+    marginBottom: 14,
+    textAlign: 'center',
+  },
+  levelUpTitleMeta: {
+    color: '#A8B0C7',
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  levelUpNewTitleMeta: {
+    color: '#F6C453',
+    fontSize: 15,
+    fontWeight: '900',
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  levelUpStatsBox: {
+    alignSelf: 'stretch',
+    backgroundColor: '#171923',
+    borderColor: '#3E4661',
     borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 14,
+    marginTop: 16,
     padding: 12,
   },
-  simulatedDayTitle: {
-    color: '#F6C453',
-    fontSize: 16,
+  levelUpStatsLabel: {
+    color: '#A970FF',
+    fontSize: 12,
     fontWeight: '900',
     marginBottom: 4,
+    textAlign: 'center',
+    textTransform: 'uppercase',
   },
-  simulatedDayDate: {
+  levelUpStatsValue: {
     color: '#A8B0C7',
     fontSize: 13,
     fontWeight: '800',
+    textAlign: 'center',
   },
   questList: {
     gap: 14,
+  },
+  bonusEffortCard: {
+    backgroundColor: '#242938',
+    borderColor: '#3E4661',
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 18,
+    padding: 14,
+  },
+  bonusEffortTitle: {
+    color: '#F6C453',
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 10,
+  },
+  bonusEffortButton: {
+    alignItems: 'center',
+    backgroundColor: '#171923',
+    borderColor: '#A970FF',
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: 12,
+  },
+  bonusEffortButtonText: {
+    color: '#F4F1DE',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  bonusOptionList: {
+    gap: 8,
+    marginTop: 12,
+  },
+  bonusOption: {
+    alignItems: 'center',
+    backgroundColor: '#171923',
+    borderColor: '#3E4661',
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 12,
+  },
+  bonusOptionTextBlock: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  bonusOptionTitle: {
+    color: '#F4F1DE',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  bonusOptionMeta: {
+    color: '#A8B0C7',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  bonusOptionAdd: {
+    color: '#55D187',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  bonusEmptyText: {
+    color: '#A8B0C7',
+    fontSize: 13,
+    fontWeight: '700',
+    paddingVertical: 8,
   },
   questGroupCard: {
     backgroundColor: '#242938',

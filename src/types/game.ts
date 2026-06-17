@@ -4,6 +4,16 @@ export type Player = {
   level: number;
 };
 
+export type HeroAttributes = {
+  id: string;
+  body: number;
+  levelStartBody: number;
+  levelStartMind: number;
+  levelStartPurpose: number;
+  mind: number;
+  purpose: number;
+};
+
 export type Quest = {
   id: string;
   templateId: string;
@@ -13,7 +23,10 @@ export type Quest = {
   description: string;
   xp: number;
   completed: boolean;
+  source: QuestSource;
 };
+
+export type QuestSource = 'scheduled' | 'carryover' | 'bonus';
 
 export type QuestTemplate = {
   id: string;
@@ -72,6 +85,7 @@ export type KingdomChecklistItem = {
 
 export type GameState = {
   player: Player;
+  heroAttributes: HeroAttributes;
   quests: Quest[];
   shadow: Shadow;
   today: string;

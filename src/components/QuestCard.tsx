@@ -29,7 +29,12 @@ export function QuestCard({ quest, onToggle }: QuestCardProps) {
         ]}
       />
       <View style={styles.questBody}>
-        <Text style={styles.questCategory}>{quest.category}</Text>
+        <View style={styles.questMetaRow}>
+          <Text style={styles.questCategory}>{quest.category}</Text>
+          {quest.source === 'bonus' ? (
+            <Text style={styles.questSourceBadge}>BONUS</Text>
+          ) : null}
+        </View>
         <Text style={styles.questTitle}>{quest.title}</Text>
         <Text style={styles.questDescription}>{quest.description}</Text>
         <Text style={styles.questReward}>+{quest.xp} XP</Text>
@@ -94,7 +99,22 @@ const styles = StyleSheet.create({
     color: '#A970FF',
     fontSize: 11,
     fontWeight: '900',
+  },
+  questMetaRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
     marginBottom: 4,
+  },
+  questSourceBadge: {
+    backgroundColor: '#F6C453',
+    borderRadius: 6,
+    color: '#171923',
+    fontSize: 10,
+    fontWeight: '900',
+    overflow: 'hidden',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
   questTitle: {
     color: '#F4F1DE',

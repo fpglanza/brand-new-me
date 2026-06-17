@@ -3,10 +3,12 @@ import * as SQLite from 'expo-sqlite';
 import type {
   GameState,
   FinalizedBattleResult,
+  HeroAttributes,
   KingdomChecklistFrequency,
   KingdomChecklistItem,
   Player,
   Quest,
+  QuestSource,
   QuestTemplate,
   Shadow,
   WeeklyBattlePreview,
@@ -22,6 +24,7 @@ type QuestRow = {
   description: string;
   xp_reward: number;
   completed: number;
+  source: QuestSource;
 };
 
 type LegacyQuestRow = {
@@ -35,6 +38,16 @@ type PlayerRow = {
   id: string;
   total_xp: number;
   level: number;
+};
+
+type HeroAttributesRow = {
+  id: string;
+  body: number;
+  level_start_body: number;
+  level_start_mind: number;
+  level_start_purpose: number;
+  mind: number;
+  purpose: number;
 };
 
 type ShadowRow = {
@@ -74,6 +87,7 @@ export const XP_GOAL = 100;
 
 const DATABASE_NAME = 'brand-new-me.db';
 const PLAYER_ID = 'player';
+const HERO_ATTRIBUTES_ID = 'hero';
 const SHADOW_ID = 'shadow-steward';
 const ONE_WEEK_IN_MS = 7 * 24 * 60 * 60 * 1000;
 const CADENCE_ANCHOR_WEEK_START = '1970-01-05';
@@ -82,6 +96,16 @@ export const DEFAULT_PLAYER: Player = {
   id: PLAYER_ID,
   totalXp: 0,
   level: 1,
+};
+
+export const DEFAULT_HERO_ATTRIBUTES: HeroAttributes = {
+  id: HERO_ATTRIBUTES_ID,
+  body: 0,
+  levelStartBody: 0,
+  levelStartMind: 0,
+  levelStartPurpose: 0,
+  mind: 0,
+  purpose: 0,
 };
 
 export const DEFAULT_SHADOW: Shadow = {
@@ -354,6 +378,100 @@ const KINGDOM_CHECKLIST_TEMPLATES: {
   },
 ];
 
+export const BONUS_EFFORT_TEMPLATES: QuestTemplate[] = [
+  {
+    id: 'workout-a',
+    title: 'Workout A',
+    category: 'Body',
+    description: 'Complete the scheduled Workout A session.',
+    xp: 25,
+  },
+  {
+    id: 'workout-b',
+    title: 'Workout B',
+    category: 'Body',
+    description: 'Complete the scheduled Workout B session.',
+    xp: 25,
+  },
+  {
+    id: 'workout-c',
+    title: 'Workout C',
+    category: 'Body',
+    description: 'Complete the scheduled Workout C session.',
+    xp: 25,
+  },
+  {
+    id: 'walk-6k-10k-steps',
+    title: 'Walk 6k-10k Steps',
+    category: 'Body',
+    description: 'Walk 6k-10k steps.',
+    xp: 25,
+  },
+  {
+    id: 'mobility',
+    title: 'Mobility',
+    category: 'Body',
+    description: '10 minutes mobility / stretching.',
+    xp: 15,
+  },
+  {
+    id: 'active-recovery',
+    title: 'Active Recovery',
+    category: 'Recovery',
+    description: 'Low-intensity recovery movement.',
+    xp: 20,
+  },
+  {
+    id: 'light-stretching',
+    title: 'Light Stretching',
+    category: 'Recovery',
+    description: 'Easy stretching to stay loose.',
+    xp: 15,
+  },
+  {
+    id: 'meal-prep',
+    title: 'Meal Prep',
+    category: 'Stewardship',
+    description: 'Prepare simple meals for the week ahead.',
+    xp: 25,
+  },
+  {
+    id: 'grocery-shopping',
+    title: 'Grocery Shopping',
+    category: 'Stewardship',
+    description: 'Stock the kitchen with useful food.',
+    xp: 20,
+  },
+  {
+    id: 'house-reset',
+    title: 'House Reset',
+    category: 'Stewardship',
+    description: 'Reset the home base for the next run.',
+    xp: 25,
+  },
+  {
+    id: 'writing',
+    title: 'Writing',
+    category: 'Mind',
+    description: '5-10 minutes writing, ideas, journal, acting notes.',
+    xp: 10,
+  },
+  {
+    id: 'side-project',
+    title: 'Side Project',
+    category: 'Purpose',
+    description: 'At least 1 hour on side project.',
+    xp: 35,
+  },
+  {
+    id: 'mindfulness',
+    title: 'Mindfulness',
+    category: 'Mind',
+    description: '5 minutes of breathing / mindfulness.',
+    xp: 10,
+  },
+];
+
 export const DEFAULT_QUEST_TEMPLATES: QuestTemplate[] = [
   ...DAILY_BASELINE_QUEST_TEMPLATES,
   ...Object.values(WEEKDAY_QUEST_TEMPLATES).flat(),
@@ -391,6 +509,7 @@ export function getDefaultQuestsForDate(date: string): Quest[] {
     description: quest.description,
     xp: quest.xp,
     completed: false,
+    source: 'scheduled',
   }));
 }
 
@@ -422,8 +541,12 @@ export async function loadGameState(
     'SELECT id, total_xp, level FROM player WHERE id = ?',
     PLAYER_ID,
   );
+  const heroAttributesRow = await db.getFirstAsync<HeroAttributesRow>(
+    'SELECT id, body, mind, purpose, level_start_body, level_start_mind, level_start_purpose FROM hero_attributes WHERE id = ?',
+    HERO_ATTRIBUTES_ID,
+  );
   const questRows = await db.getAllAsync<QuestRow>(
-    'SELECT id, template_id, date, title, category, description, xp_reward, completed FROM quests WHERE date = ? ORDER BY rowid ASC',
+    'SELECT id, template_id, date, title, category, description, xp_reward, completed, source FROM quests WHERE date = ? ORDER BY rowid ASC',
     today,
   );
   const shadowRow = await db.getFirstAsync<ShadowRow>(
@@ -440,6 +563,9 @@ export async function loadGameState(
 
   return {
     player: playerRow ? mapPlayerRow(playerRow) : DEFAULT_PLAYER,
+    heroAttributes: heroAttributesRow
+      ? mapHeroAttributesRow(heroAttributesRow)
+      : DEFAULT_HERO_ATTRIBUTES,
     quests: questRows.map(mapQuestRow),
     shadow: shadowRow ? mapShadowRow(shadowRow) : DEFAULT_SHADOW,
     today,
@@ -516,12 +642,16 @@ export async function toggleQuestInDatabase(
       'SELECT id, total_xp, level FROM player WHERE id = ?',
       PLAYER_ID,
     );
+    const latestHeroAttributes = await db.getFirstAsync<HeroAttributesRow>(
+      'SELECT id, body, mind, purpose, level_start_body, level_start_mind, level_start_purpose FROM hero_attributes WHERE id = ?',
+      HERO_ATTRIBUTES_ID,
+    );
     const latestShadow = await db.getFirstAsync<ShadowRow>(
       'SELECT id, name, class, description, current_power, max_power, week_start FROM shadow WHERE id = ?',
       SHADOW_ID,
     );
 
-    if (!latestQuest || !latestPlayer || !latestShadow) {
+    if (!latestQuest || !latestPlayer || !latestHeroAttributes || !latestShadow) {
       return;
     }
 
@@ -539,6 +669,31 @@ export async function toggleQuestInDatabase(
       latestShadow.max_power,
     );
     const nextCompleted = isCompleting ? 1 : 0;
+    const attributeGain = getHeroAttributeGain(latestQuest.template_id);
+    const attributeMultiplier = isCompleting ? 1 : -1;
+    const nextBody = Math.max(
+      latestHeroAttributes.body + attributeGain.body * attributeMultiplier,
+      0,
+    );
+    const nextMind = Math.max(
+      latestHeroAttributes.mind + attributeGain.mind * attributeMultiplier,
+      0,
+    );
+    const nextPurpose = Math.max(
+      latestHeroAttributes.purpose +
+        attributeGain.purpose * attributeMultiplier,
+      0,
+    );
+    const didLevelChange = nextLevel !== latestPlayer.level;
+    const nextLevelStartBody = didLevelChange
+      ? nextBody
+      : latestHeroAttributes.level_start_body;
+    const nextLevelStartMind = didLevelChange
+      ? nextMind
+      : latestHeroAttributes.level_start_mind;
+    const nextLevelStartPurpose = didLevelChange
+      ? nextPurpose
+      : latestHeroAttributes.level_start_purpose;
 
     await db.runAsync(
       'UPDATE quests SET completed = ? WHERE id = ? AND date = ?',
@@ -554,6 +709,31 @@ export async function toggleQuestInDatabase(
       PLAYER_ID,
       nextTotalXp,
       nextLevel,
+    );
+    await db.runAsync(
+      `INSERT INTO hero_attributes (
+        id,
+        body,
+        mind,
+        purpose,
+        level_start_body,
+        level_start_mind,
+        level_start_purpose
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        body = excluded.body,
+        mind = excluded.mind,
+        purpose = excluded.purpose,
+        level_start_body = excluded.level_start_body,
+        level_start_mind = excluded.level_start_mind,
+        level_start_purpose = excluded.level_start_purpose`,
+      HERO_ATTRIBUTES_ID,
+      nextBody,
+      nextMind,
+      nextPurpose,
+      nextLevelStartBody,
+      nextLevelStartMind,
+      nextLevelStartPurpose,
     );
     await db.runAsync(
       'UPDATE shadow SET current_power = ? WHERE id = ?',
@@ -576,12 +756,16 @@ export async function resetTodaysQuestsInDatabase(
       'SELECT id, total_xp, level FROM player WHERE id = ?',
       PLAYER_ID,
     );
+    const latestHeroAttributes = await db.getFirstAsync<HeroAttributesRow>(
+      'SELECT id, body, mind, purpose, level_start_body, level_start_mind, level_start_purpose FROM hero_attributes WHERE id = ?',
+      HERO_ATTRIBUTES_ID,
+    );
     const latestShadow = await db.getFirstAsync<ShadowRow>(
       'SELECT id, name, class, description, current_power, max_power, week_start FROM shadow WHERE id = ?',
       SHADOW_ID,
     );
 
-    if (!latestPlayer || !latestShadow) {
+    if (!latestPlayer || !latestHeroAttributes || !latestShadow) {
       return;
     }
 
@@ -593,8 +777,42 @@ export async function resetTodaysQuestsInDatabase(
       (total, quest) => total + getShadowDamage(quest.xp_reward),
       0,
     );
+    const attributeGainToday = completedQuests.reduce(
+      (total, quest) => {
+        const gain = getHeroAttributeGain(quest.template_id);
+
+        return {
+          body: total.body + gain.body,
+          mind: total.mind + gain.mind,
+          purpose: total.purpose + gain.purpose,
+        };
+      },
+      { body: 0, mind: 0, purpose: 0 },
+    );
     const nextTotalXp = Math.max(latestPlayer.total_xp - earnedToday, 0);
     const nextLevel = getLevelForXp(nextTotalXp);
+    const nextBody = Math.max(
+      latestHeroAttributes.body - attributeGainToday.body,
+      0,
+    );
+    const nextMind = Math.max(
+      latestHeroAttributes.mind - attributeGainToday.mind,
+      0,
+    );
+    const nextPurpose = Math.max(
+      latestHeroAttributes.purpose - attributeGainToday.purpose,
+      0,
+    );
+    const didLevelChange = nextLevel !== latestPlayer.level;
+    const nextLevelStartBody = didLevelChange
+      ? nextBody
+      : latestHeroAttributes.level_start_body;
+    const nextLevelStartMind = didLevelChange
+      ? nextMind
+      : latestHeroAttributes.level_start_mind;
+    const nextLevelStartPurpose = didLevelChange
+      ? nextPurpose
+      : latestHeroAttributes.level_start_purpose;
     const nextShadowPower = clamp(
       latestShadow.current_power + shadowDamageToday,
       0,
@@ -615,6 +833,31 @@ export async function resetTodaysQuestsInDatabase(
       nextLevel,
     );
     await db.runAsync(
+      `INSERT INTO hero_attributes (
+        id,
+        body,
+        mind,
+        purpose,
+        level_start_body,
+        level_start_mind,
+        level_start_purpose
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        body = excluded.body,
+        mind = excluded.mind,
+        purpose = excluded.purpose,
+        level_start_body = excluded.level_start_body,
+        level_start_mind = excluded.level_start_mind,
+        level_start_purpose = excluded.level_start_purpose`,
+      HERO_ATTRIBUTES_ID,
+      nextBody,
+      nextMind,
+      nextPurpose,
+      nextLevelStartBody,
+      nextLevelStartMind,
+      nextLevelStartPurpose,
+    );
+    await db.runAsync(
       'UPDATE shadow SET current_power = ? WHERE id = ?',
       nextShadowPower,
       SHADOW_ID,
@@ -628,6 +871,7 @@ export async function resetAllDataInDatabase(
 ) {
   await db.withTransactionAsync(async () => {
     await db.runAsync('DELETE FROM player');
+    await db.runAsync('DELETE FROM hero_attributes');
     await db.runAsync('DELETE FROM quests');
     await db.runAsync('DELETE FROM shadow');
     await db.runAsync('DELETE FROM weekly_results');
@@ -638,6 +882,24 @@ export async function resetAllDataInDatabase(
       DEFAULT_PLAYER.id,
       DEFAULT_PLAYER.totalXp,
       DEFAULT_PLAYER.level,
+    );
+    await db.runAsync(
+      `INSERT INTO hero_attributes (
+        id,
+        body,
+        mind,
+        purpose,
+        level_start_body,
+        level_start_mind,
+        level_start_purpose
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      DEFAULT_HERO_ATTRIBUTES.id,
+      DEFAULT_HERO_ATTRIBUTES.body,
+      DEFAULT_HERO_ATTRIBUTES.mind,
+      DEFAULT_HERO_ATTRIBUTES.purpose,
+      DEFAULT_HERO_ATTRIBUTES.levelStartBody,
+      DEFAULT_HERO_ATTRIBUTES.levelStartMind,
+      DEFAULT_HERO_ATTRIBUTES.levelStartPurpose,
     );
     await db.runAsync(
       'INSERT INTO shadow (id, name, class, description, current_power, max_power, week_start) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -652,7 +914,7 @@ export async function resetAllDataInDatabase(
 
     for (const quest of await getQuestInstancesForDate(db, today)) {
       await db.runAsync(
-        'INSERT INTO quests (id, template_id, date, title, category, description, xp_reward, completed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO quests (id, template_id, date, title, category, description, xp_reward, completed, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         quest.id,
         quest.templateId,
         quest.date,
@@ -661,6 +923,7 @@ export async function resetAllDataInDatabase(
         quest.description,
         quest.xp,
         quest.completed ? 1 : 0,
+        quest.source,
       );
     }
 
@@ -679,7 +942,7 @@ export async function reseedQuestCatalogForDateInDatabase(
 
     for (const quest of await getQuestInstancesForDate(db, today)) {
       await db.runAsync(
-        'INSERT INTO quests (id, template_id, date, title, category, description, xp_reward, completed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO quests (id, template_id, date, title, category, description, xp_reward, completed, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         quest.id,
         quest.templateId,
         quest.date,
@@ -688,8 +951,136 @@ export async function reseedQuestCatalogForDateInDatabase(
         quest.description,
         quest.xp,
         quest.completed ? 1 : 0,
+        quest.source,
       );
     }
+  });
+}
+
+export async function completeBonusQuestInDatabase(
+  db: SQLite.SQLiteDatabase,
+  templateId: string,
+  today = getLocalDateString(),
+) {
+  const questTemplate = BONUS_EFFORT_TEMPLATES.find(
+    (template) => template.id === templateId,
+  );
+
+  if (!questTemplate) {
+    return;
+  }
+
+  await db.withTransactionAsync(async () => {
+    const questId = getBonusQuestInstanceId(today, templateId);
+    const existingQuest = await db.getFirstAsync<QuestRow>(
+      'SELECT id, template_id, date, title, category, description, xp_reward, completed, source FROM quests WHERE id = ? AND date = ?',
+      questId,
+      today,
+    );
+    const latestPlayer = await db.getFirstAsync<PlayerRow>(
+      'SELECT id, total_xp, level FROM player WHERE id = ?',
+      PLAYER_ID,
+    );
+    const latestHeroAttributes = await db.getFirstAsync<HeroAttributesRow>(
+      'SELECT id, body, mind, purpose, level_start_body, level_start_mind, level_start_purpose FROM hero_attributes WHERE id = ?',
+      HERO_ATTRIBUTES_ID,
+    );
+    const latestShadow = await db.getFirstAsync<ShadowRow>(
+      'SELECT id, name, class, description, current_power, max_power, week_start FROM shadow WHERE id = ?',
+      SHADOW_ID,
+    );
+
+    if (
+      !latestPlayer ||
+      !latestHeroAttributes ||
+      !latestShadow ||
+      existingQuest?.completed === 1
+    ) {
+      return;
+    }
+
+    const nextTotalXp = latestPlayer.total_xp + questTemplate.xp;
+    const nextLevel = getLevelForXp(nextTotalXp);
+    const attributeGain = getHeroAttributeGain(questTemplate.id);
+    const nextBody = latestHeroAttributes.body + attributeGain.body;
+    const nextMind = latestHeroAttributes.mind + attributeGain.mind;
+    const nextPurpose = latestHeroAttributes.purpose + attributeGain.purpose;
+    const didLevelChange = nextLevel !== latestPlayer.level;
+    const nextLevelStartBody = didLevelChange
+      ? nextBody
+      : latestHeroAttributes.level_start_body;
+    const nextLevelStartMind = didLevelChange
+      ? nextMind
+      : latestHeroAttributes.level_start_mind;
+    const nextLevelStartPurpose = didLevelChange
+      ? nextPurpose
+      : latestHeroAttributes.level_start_purpose;
+    const nextShadowPower = clamp(
+      latestShadow.current_power - getShadowDamage(questTemplate.xp),
+      0,
+      latestShadow.max_power,
+    );
+
+    if (existingQuest) {
+      await db.runAsync(
+        'UPDATE quests SET completed = 1 WHERE id = ? AND date = ?',
+        questId,
+        today,
+      );
+    } else {
+      await db.runAsync(
+        'INSERT INTO quests (id, template_id, date, title, category, description, xp_reward, completed, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        questId,
+        questTemplate.id,
+        today,
+        questTemplate.title,
+        questTemplate.category,
+        questTemplate.description,
+        questTemplate.xp,
+        1,
+        'bonus',
+      );
+    }
+
+    await db.runAsync(
+      `INSERT INTO player (id, total_xp, level) VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        total_xp = excluded.total_xp,
+        level = excluded.level`,
+      PLAYER_ID,
+      nextTotalXp,
+      nextLevel,
+    );
+    await db.runAsync(
+      `INSERT INTO hero_attributes (
+        id,
+        body,
+        mind,
+        purpose,
+        level_start_body,
+        level_start_mind,
+        level_start_purpose
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        body = excluded.body,
+        mind = excluded.mind,
+        purpose = excluded.purpose,
+        level_start_body = excluded.level_start_body,
+        level_start_mind = excluded.level_start_mind,
+        level_start_purpose = excluded.level_start_purpose`,
+      HERO_ATTRIBUTES_ID,
+      nextBody,
+      nextMind,
+      nextPurpose,
+      nextLevelStartBody,
+      nextLevelStartMind,
+      nextLevelStartPurpose,
+    );
+    await db.runAsync(
+      'UPDATE shadow SET current_power = ? WHERE id = ?',
+      nextShadowPower,
+      SHADOW_ID,
+    );
   });
 }
 
@@ -822,6 +1213,32 @@ function getShadowDamage(xpReward: number) {
   return Math.floor(xpReward / 10);
 }
 
+export function getHeroAttributeGain(templateId: string) {
+  switch (templateId) {
+    case 'workout-a':
+    case 'workout-b':
+    case 'workout-c':
+    case 'workout-a-carried-over':
+    case 'workout-b-carried-over':
+    case 'workout-c-carried-over':
+      return { body: 25, mind: 0, purpose: 0 };
+    case 'walk-6k-10k-steps':
+      return { body: 10, mind: 0, purpose: 0 };
+    case 'mobility':
+    case 'active-recovery':
+    case 'light-stretching':
+      return { body: 5, mind: 0, purpose: 0 };
+    case 'mindfulness':
+      return { body: 0, mind: 5, purpose: 0 };
+    case 'writing':
+      return { body: 0, mind: 15, purpose: 0 };
+    case 'side-project':
+      return { body: 0, mind: 0, purpose: 40 };
+    default:
+      return { body: 0, mind: 0, purpose: 0 };
+  }
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -833,6 +1250,15 @@ async function setupDatabase(db: SQLite.SQLiteDatabase, today: string) {
       id TEXT PRIMARY KEY NOT NULL,
       total_xp INTEGER NOT NULL,
       level INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS hero_attributes (
+      id TEXT PRIMARY KEY NOT NULL,
+      body INTEGER NOT NULL,
+      mind INTEGER NOT NULL,
+      purpose INTEGER NOT NULL,
+      level_start_body INTEGER NOT NULL DEFAULT 0,
+      level_start_mind INTEGER NOT NULL DEFAULT 0,
+      level_start_purpose INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS shadow (
       id TEXT PRIMARY KEY NOT NULL,
@@ -864,6 +1290,7 @@ async function setupDatabase(db: SQLite.SQLiteDatabase, today: string) {
   `);
 
   await migrateQuestTableIfNeeded(db, today);
+  await migrateHeroAttributesTableIfNeeded(db);
   await migrateShadowTableIfNeeded(db, today);
   await migrateKingdomChecklistTableIfNeeded(db);
   await db.execAsync(
@@ -876,6 +1303,8 @@ async function setupDatabase(db: SQLite.SQLiteDatabase, today: string) {
     DEFAULT_PLAYER.totalXp,
     DEFAULT_PLAYER.level,
   );
+
+  await initializeHeroAttributesIfNeeded(db);
 
   await db.runAsync(
     'INSERT OR IGNORE INTO shadow (id, name, class, description, current_power, max_power, week_start) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -924,6 +1353,68 @@ function mapPlayerRow(row: PlayerRow): Player {
   };
 }
 
+function mapHeroAttributesRow(row: HeroAttributesRow): HeroAttributes {
+  return {
+    id: row.id,
+    body: row.body,
+    levelStartBody: row.level_start_body,
+    levelStartMind: row.level_start_mind,
+    levelStartPurpose: row.level_start_purpose,
+    mind: row.mind,
+    purpose: row.purpose,
+  };
+}
+
+async function initializeHeroAttributesIfNeeded(db: SQLite.SQLiteDatabase) {
+  const existingAttributes = await db.getFirstAsync<HeroAttributesRow>(
+    'SELECT id, body, mind, purpose, level_start_body, level_start_mind, level_start_purpose FROM hero_attributes WHERE id = ?',
+    HERO_ATTRIBUTES_ID,
+  );
+
+  if (existingAttributes) {
+    return;
+  }
+
+  const completedQuests = await db.getAllAsync<{ template_id: string }>(
+    'SELECT template_id FROM quests WHERE completed = 1',
+  );
+  const totalAttributes = completedQuests.reduce(
+    (total, quest) => {
+      const gain = getHeroAttributeGain(quest.template_id);
+
+      return {
+        body: total.body + gain.body,
+        mind: total.mind + gain.mind,
+        purpose: total.purpose + gain.purpose,
+      };
+    },
+    {
+      body: DEFAULT_HERO_ATTRIBUTES.body,
+      mind: DEFAULT_HERO_ATTRIBUTES.mind,
+      purpose: DEFAULT_HERO_ATTRIBUTES.purpose,
+    },
+  );
+
+  await db.runAsync(
+    `INSERT INTO hero_attributes (
+      id,
+      body,
+      mind,
+      purpose,
+      level_start_body,
+      level_start_mind,
+      level_start_purpose
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    DEFAULT_HERO_ATTRIBUTES.id,
+    totalAttributes.body,
+    totalAttributes.mind,
+    totalAttributes.purpose,
+    totalAttributes.body,
+    totalAttributes.mind,
+    totalAttributes.purpose,
+  );
+}
+
 function mapQuestRow(row: QuestRow): Quest {
   return {
     id: row.id,
@@ -934,6 +1425,7 @@ function mapQuestRow(row: QuestRow): Quest {
     description: row.description,
     xp: row.xp_reward,
     completed: row.completed === 1,
+    source: row.source ?? 'scheduled',
   };
 }
 
@@ -1004,7 +1496,7 @@ async function migrateQuestTableIfNeeded(
 
   for (const quest of legacyQuests) {
     await db.runAsync(
-      'INSERT OR IGNORE INTO quests (id, template_id, date, title, category, description, xp_reward, completed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT OR IGNORE INTO quests (id, template_id, date, title, category, description, xp_reward, completed, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       getQuestInstanceId(today, quest.id),
       quest.id,
       today,
@@ -1013,6 +1505,7 @@ async function migrateQuestTableIfNeeded(
       '',
       quest.xp_reward,
       quest.completed,
+      'scheduled',
     );
   }
 }
@@ -1027,6 +1520,7 @@ async function migrateQuestCatalogColumnsIfNeeded(
   const hasDescriptionColumn = tableInfo.some(
     (column) => column.name === 'description',
   );
+  const hasSourceColumn = tableInfo.some((column) => column.name === 'source');
 
   if (!hasCategoryColumn) {
     await db.execAsync('ALTER TABLE quests ADD COLUMN category TEXT');
@@ -1034,6 +1528,12 @@ async function migrateQuestCatalogColumnsIfNeeded(
 
   if (!hasDescriptionColumn) {
     await db.execAsync('ALTER TABLE quests ADD COLUMN description TEXT');
+  }
+
+  if (!hasSourceColumn) {
+    await db.execAsync(
+      "ALTER TABLE quests ADD COLUMN source TEXT NOT NULL DEFAULT 'scheduled'",
+    );
   }
 
   for (const quest of DEFAULT_QUEST_TEMPLATES) {
@@ -1049,6 +1549,38 @@ async function migrateQuestCatalogColumnsIfNeeded(
     "UPDATE quests SET category = 'Legacy' WHERE category IS NULL",
   );
   await db.runAsync("UPDATE quests SET description = '' WHERE description IS NULL");
+  await db.runAsync("UPDATE quests SET source = 'scheduled' WHERE source IS NULL");
+}
+
+async function migrateHeroAttributesTableIfNeeded(db: SQLite.SQLiteDatabase) {
+  const tableInfo = await db.getAllAsync<{ name: string }>(
+    'PRAGMA table_info(hero_attributes)',
+  );
+  const snapshotColumns = [
+    'level_start_body',
+    'level_start_mind',
+    'level_start_purpose',
+  ];
+  let addedSnapshotColumn = false;
+
+  for (const column of snapshotColumns) {
+    if (!tableInfo.some((existingColumn) => existingColumn.name === column)) {
+      await db.execAsync(
+        `ALTER TABLE hero_attributes ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`,
+      );
+      addedSnapshotColumn = true;
+    }
+  }
+
+  if (addedSnapshotColumn) {
+    await db.runAsync(
+      `UPDATE hero_attributes
+      SET
+        level_start_body = body,
+        level_start_mind = mind,
+        level_start_purpose = purpose`,
+    );
+  }
 }
 
 async function migrateShadowTableIfNeeded(
@@ -1147,7 +1679,8 @@ async function createQuestTable(db: SQLite.SQLiteDatabase) {
       category TEXT NOT NULL,
       description TEXT NOT NULL,
       xp_reward INTEGER NOT NULL,
-      completed INTEGER NOT NULL DEFAULT 0
+      completed INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'scheduled'
     );
     CREATE INDEX IF NOT EXISTS quests_date_idx ON quests (date);
   `);
@@ -1159,7 +1692,7 @@ async function createQuestsForDateIfNeeded(
 ) {
   for (const quest of await getQuestInstancesForDate(db, date)) {
     await db.runAsync(
-      'INSERT OR IGNORE INTO quests (id, template_id, date, title, category, description, xp_reward, completed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT OR IGNORE INTO quests (id, template_id, date, title, category, description, xp_reward, completed, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       quest.id,
       quest.templateId,
       quest.date,
@@ -1168,6 +1701,7 @@ async function createQuestsForDateIfNeeded(
       quest.description,
       quest.xp,
       quest.completed ? 1 : 0,
+      quest.source,
     );
   }
 }
@@ -1194,6 +1728,7 @@ async function getQuestInstancesForDate(
       description: carryoverTemplate.description,
       xp: carryoverTemplate.xp,
       completed: false,
+      source: 'carryover',
     },
   ];
 }
@@ -1266,6 +1801,10 @@ function getQuestInstanceId(date: string, templateId: string) {
   return `${date}:${templateId}`;
 }
 
+function getBonusQuestInstanceId(date: string, templateId: string) {
+  return `${date}:bonus:${templateId}`;
+}
+
 function getActiveKingdomWindowKeys(date: string) {
   return KINGDOM_FREQUENCY_ORDER.map((frequency) =>
     getKingdomCadenceWindowKey(frequency, date),
@@ -1334,11 +1873,11 @@ function getWeeklyResult(victoryDays: number): WeeklyResult {
 function getWeeklyFlavorText(result: WeeklyResult) {
   switch (result) {
     case 'Victory':
-      return 'Order held the line this week.';
+      return 'The Dark Empress is pleased.\n\nOrder was maintained this week.';
     case 'Draw':
-      return 'The Shadow remains, but so do you.';
+      return 'The Dark Empress watches silently.\n\nMore will be required next week.';
     case 'Defeat':
-      return 'Reset. Learn. Begin again.';
+      return 'The Dark Empress is displeased.\n\nEntropy spreads through the kingdom.';
   }
 }
 

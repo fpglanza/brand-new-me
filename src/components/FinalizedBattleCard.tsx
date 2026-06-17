@@ -13,7 +13,7 @@ export function FinalizedBattleCard({
 
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>FINALIZED BATTLE</Text>
+      <Text style={styles.title}>FINALIZED CHALLENGE</Text>
       <View style={styles.row}>
         <Text style={styles.label}>Result</Text>
         <Text style={styles.result}>{finalizedBattle.result}</Text>
