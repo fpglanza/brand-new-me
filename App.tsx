@@ -13,7 +13,7 @@ import {
 
 import { DarkEmpressCard } from './src/components/DarkEmpressCard';
 import { FinalizedBattleCard } from './src/components/FinalizedBattleCard';
-import { HeroSprite } from './src/components/HeroSprite';
+import { HeroWalkSprite } from './src/components/HeroWalkSprite';
 import { QuestCard, QuestLoadingCard } from './src/components/QuestCard';
 import { WeeklyBattlePreview } from './src/components/WeeklyBattlePreview';
 import {
@@ -734,7 +734,7 @@ export default function App() {
                 {heroTitle.toUpperCase()}
               </Text>
               <Text style={styles.heroPath}>{heroPath}</Text>
-              <HeroSprite size={160} />
+              <HeroWalkSprite size={160} />
               <Text style={styles.homeHeroLevel}>Level {player.level}</Text>
               <Text style={styles.homeHeroTotalXp}>
                 Total XP: {player.totalXp}
@@ -1155,7 +1155,7 @@ export default function App() {
               <Text style={styles.heroPath}>{heroPath}</Text>
             </View>
             <View style={styles.heroDetailSpriteCard}>
-              <HeroSprite size={220} />
+              <HeroWalkSprite size={220} />
             </View>
 
             <View style={styles.heroProgressCard}>
