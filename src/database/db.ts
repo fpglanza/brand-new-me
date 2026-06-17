@@ -6,6 +6,7 @@ import type {
   HeroAttributes,
   KingdomChecklistFrequency,
   KingdomChecklistItem,
+  KingdomState,
   Player,
   Quest,
   QuestSource,
@@ -83,11 +84,18 @@ type KingdomChecklistRow = {
   completed: number;
 };
 
+type KingdomStateRow = {
+  id: string;
+  prosperity: number;
+  legacy: number;
+};
+
 export const XP_GOAL = 100;
 
 const DATABASE_NAME = 'brand-new-me.db';
 const PLAYER_ID = 'player';
 const HERO_ATTRIBUTES_ID = 'hero';
+const KINGDOM_STATE_ID = 'kingdom';
 const SHADOW_ID = 'shadow-steward';
 const ONE_WEEK_IN_MS = 7 * 24 * 60 * 60 * 1000;
 const CADENCE_ANCHOR_WEEK_START = '1970-01-05';
@@ -116,6 +124,12 @@ export const DEFAULT_SHADOW: Shadow = {
   currentPower: 100,
   maxPower: 100,
   weekStart: getWeekStartDateString(),
+};
+
+export const DEFAULT_KINGDOM_STATE: KingdomState = {
+  id: KINGDOM_STATE_ID,
+  prosperity: 0,
+  legacy: 0,
 };
 
 const DAILY_BASELINE_QUEST_TEMPLATES: QuestTemplate[] = [
@@ -560,6 +574,10 @@ export async function loadGameState(
     ORDER BY rowid ASC`,
     ...activeKingdomWindowKeys,
   );
+  const kingdomStateRow = await db.getFirstAsync<KingdomStateRow>(
+    'SELECT id, prosperity, legacy FROM kingdom_state WHERE id = ?',
+    KINGDOM_STATE_ID,
+  );
 
   return {
     player: playerRow ? mapPlayerRow(playerRow) : DEFAULT_PLAYER,
@@ -572,6 +590,9 @@ export async function loadGameState(
     weeklyBattle,
     finalizedBattle,
     kingdomChecklist: kingdomChecklistRows.map(mapKingdomChecklistRow),
+    kingdomState: kingdomStateRow
+      ? mapKingdomStateRow(kingdomStateRow)
+      : DEFAULT_KINGDOM_STATE,
   };
 }
 
@@ -876,6 +897,7 @@ export async function resetAllDataInDatabase(
     await db.runAsync('DELETE FROM shadow');
     await db.runAsync('DELETE FROM weekly_results');
     await db.runAsync('DELETE FROM kingdom_checklist');
+    await db.runAsync('DELETE FROM kingdom_state');
 
     await db.runAsync(
       'INSERT INTO player (id, total_xp, level) VALUES (?, ?, ?)',
@@ -910,6 +932,12 @@ export async function resetAllDataInDatabase(
       DEFAULT_SHADOW.currentPower,
       DEFAULT_SHADOW.maxPower,
       getWeekStartDateString(parseLocalDate(today)),
+    );
+    await db.runAsync(
+      'INSERT INTO kingdom_state (id, prosperity, legacy) VALUES (?, ?, ?)',
+      DEFAULT_KINGDOM_STATE.id,
+      DEFAULT_KINGDOM_STATE.prosperity,
+      DEFAULT_KINGDOM_STATE.legacy,
     );
 
     for (const quest of await getQuestInstancesForDate(db, today)) {
@@ -1089,25 +1117,51 @@ export async function toggleKingdomChecklistItemInDatabase(
   itemId: string,
   today = getLocalDateString(),
 ) {
-  const activeKingdomWindowKeys = getActiveKingdomWindowKeys(today);
-  const item = await db.getFirstAsync<KingdomChecklistRow>(
-    `SELECT id, template_id, week_start, window_key, title, frequency, completed
-    FROM kingdom_checklist
-    WHERE id = ? AND window_key IN (${activeKingdomWindowKeys.map(() => '?').join(', ')})`,
-    itemId,
-    ...activeKingdomWindowKeys,
-  );
+  await db.withTransactionAsync(async () => {
+    const activeKingdomWindowKeys = getActiveKingdomWindowKeys(today);
+    const item = await db.getFirstAsync<KingdomChecklistRow>(
+      `SELECT id, template_id, week_start, window_key, title, frequency, completed
+      FROM kingdom_checklist
+      WHERE id = ? AND window_key IN (${activeKingdomWindowKeys.map(() => '?').join(', ')})`,
+      itemId,
+      ...activeKingdomWindowKeys,
+    );
+    const kingdomState = await db.getFirstAsync<KingdomStateRow>(
+      'SELECT id, prosperity, legacy FROM kingdom_state WHERE id = ?',
+      KINGDOM_STATE_ID,
+    );
 
-  if (!item) {
-    return;
-  }
+    if (!item || !kingdomState) {
+      return;
+    }
 
-  await db.runAsync(
-    'UPDATE kingdom_checklist SET completed = ? WHERE id = ? AND window_key = ?',
-    item.completed === 1 ? 0 : 1,
-    itemId,
-    item.window_key,
-  );
+    const isCompleting = item.completed === 0;
+    const reward = getKingdomChecklistReward(item.template_id);
+    const nextProsperity = Math.max(
+      kingdomState.prosperity + (isCompleting ? reward : -reward),
+      0,
+    );
+    const nextLegacy = Math.max(
+      kingdomState.legacy + (isCompleting ? reward : 0),
+      0,
+    );
+
+    await db.runAsync(
+      'UPDATE kingdom_checklist SET completed = ? WHERE id = ? AND window_key = ?',
+      isCompleting ? 1 : 0,
+      itemId,
+      item.window_key,
+    );
+    await db.runAsync(
+      `INSERT INTO kingdom_state (id, prosperity, legacy) VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        prosperity = excluded.prosperity,
+        legacy = excluded.legacy`,
+      KINGDOM_STATE_ID,
+      nextProsperity,
+      nextLegacy,
+    );
+  });
 }
 
 export async function resetKingdomChecklistForWeekInDatabase(
@@ -1239,6 +1293,32 @@ export function getHeroAttributeGain(templateId: string) {
   }
 }
 
+function getKingdomChecklistReward(templateId: string) {
+  switch (templateId) {
+    case 'laundry':
+    case 'vacuum-sweep':
+    case 'mop':
+    case 'empty-bins':
+      return 5;
+    case 'general-reset-20-30-min':
+    case 'fridge-check':
+    case 'grocery-support':
+    case 'mirrors-surfaces':
+      return 10;
+    case 'change-sheets':
+    case 'deep-bathroom-clean':
+    case 'pantry-check':
+      return 15;
+    case 'decluttering-15-30-min':
+      return 20;
+    case 'full-fridge-clean':
+    case 'personal-budget-review':
+      return 25;
+    default:
+      return 0;
+  }
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -1286,6 +1366,11 @@ async function setupDatabase(db: SQLite.SQLiteDatabase, today: string) {
       frequency TEXT NOT NULL,
       completed INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS kingdom_state (
+      id TEXT PRIMARY KEY NOT NULL,
+      prosperity INTEGER NOT NULL,
+      legacy INTEGER NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS kingdom_checklist_week_start_idx ON kingdom_checklist (week_start);
   `);
 
@@ -1315,6 +1400,13 @@ async function setupDatabase(db: SQLite.SQLiteDatabase, today: string) {
     DEFAULT_SHADOW.currentPower,
     DEFAULT_SHADOW.maxPower,
     getWeekStartDateString(parseLocalDate(today)),
+  );
+
+  await db.runAsync(
+    'INSERT OR IGNORE INTO kingdom_state (id, prosperity, legacy) VALUES (?, ?, ?)',
+    DEFAULT_KINGDOM_STATE.id,
+    DEFAULT_KINGDOM_STATE.prosperity,
+    DEFAULT_KINGDOM_STATE.legacy,
   );
 
   await createQuestsFromWeekStartThroughDateIfNeeded(db, today);
@@ -1461,6 +1553,14 @@ function mapKingdomChecklistRow(row: KingdomChecklistRow): KingdomChecklistItem 
     title: row.title,
     frequency: row.frequency,
     completed: row.completed === 1,
+  };
+}
+
+function mapKingdomStateRow(row: KingdomStateRow): KingdomState {
+  return {
+    id: row.id,
+    prosperity: row.prosperity,
+    legacy: row.legacy,
   };
 }
 

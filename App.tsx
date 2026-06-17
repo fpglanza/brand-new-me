@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import {
   Animated,
+  Image,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -19,6 +20,7 @@ import { WeeklyBattlePreview } from './src/components/WeeklyBattlePreview';
 import {
   BONUS_EFFORT_TEMPLATES,
   DEFAULT_HERO_ATTRIBUTES,
+  DEFAULT_KINGDOM_STATE,
   DEFAULT_PLAYER,
   DEFAULT_SHADOW,
   clearCurrentWeekResultInDatabase,
@@ -43,6 +45,7 @@ import type {
   HeroAttributes,
   KingdomChecklistFrequency,
   KingdomChecklistItem,
+  KingdomState,
   Player,
   Quest,
   QuestTemplate,
@@ -104,6 +107,8 @@ const HERO_ATTRIBUTE_KEYS: {
   { key: 'purpose', label: 'Purpose' },
 ];
 const HERO_ATTRIBUTE_MILESTONES = [100, 500, 1000, 2500, 5000];
+const KINGDOM_PROSPERITY_MILESTONES = [100, 250, 500, 1000, 2000];
+const CASTLE_PLACEHOLDER = require('./src/assets/kingdom/castle-placeholder.jpeg');
 
 const KINGDOM_FREQUENCY_ORDER: KingdomChecklistFrequency[] = [
   'Weekly',
@@ -261,6 +266,42 @@ function getHeroAttributeMilestone(value: number) {
   return Math.ceil(value / 5000) * 5000;
 }
 
+function getKingdomProsperityMilestone(value: number) {
+  const baseMilestone = KINGDOM_PROSPERITY_MILESTONES.find(
+    (milestone) => value <= milestone,
+  );
+
+  if (baseMilestone) {
+    return baseMilestone;
+  }
+
+  return Math.ceil(value / 1000) * 1000;
+}
+
+function getKingdomStateLabel(prosperity: number) {
+  if (prosperity >= 2000) {
+    return 'Prosperous Realm';
+  }
+
+  if (prosperity >= 1000) {
+    return 'Fortified Hold';
+  }
+
+  if (prosperity >= 500) {
+    return 'Restored Village';
+  }
+
+  if (prosperity >= 250) {
+    return 'Reclaimed Outpost';
+  }
+
+  if (prosperity >= 100) {
+    return 'Stabilizing';
+  }
+
+  return 'Ruins';
+}
+
 export default function App() {
   const initialToday = getLocalDateString();
   const [db, setDb] = useState<SQLiteDatabase | null>(null);
@@ -281,6 +322,9 @@ export default function App() {
   const [kingdomChecklist, setKingdomChecklist] = useState<
     KingdomChecklistItem[]
   >([]);
+  const [kingdomState, setKingdomState] = useState<KingdomState>(
+    DEFAULT_KINGDOM_STATE,
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [activeView, setActiveView] = useState<AppView>('home');
@@ -325,6 +369,7 @@ export default function App() {
       setWeeklyBattle(gameState.weeklyBattle);
       setFinalizedBattle(gameState.finalizedBattle);
       setKingdomChecklist(gameState.kingdomChecklist);
+      setKingdomState(gameState.kingdomState);
       setIsLoading(false);
     }
 
@@ -559,6 +604,7 @@ export default function App() {
       setWeeklyBattle(gameState.weeklyBattle);
       setFinalizedBattle(gameState.finalizedBattle);
       setKingdomChecklist(gameState.kingdomChecklist);
+      setKingdomState(gameState.kingdomState);
 
       if (!quest.completed && gameState.player.totalXp > previousPlayer.totalXp) {
         showQuestCompletionFeedback(
@@ -588,6 +634,7 @@ export default function App() {
     setWeeklyBattle(gameState.weeklyBattle);
     setFinalizedBattle(gameState.finalizedBattle);
     setKingdomChecklist(gameState.kingdomChecklist);
+    setKingdomState(gameState.kingdomState);
 
     return gameState;
   };
@@ -709,6 +756,19 @@ export default function App() {
     frequency,
     items: kingdomChecklist.filter((item) => item.frequency === frequency),
   })).filter((group) => group.items.length > 0);
+  const kingdomProsperityMilestone = getKingdomProsperityMilestone(
+    kingdomState.prosperity,
+  );
+  const kingdomProsperityPercent = `${
+    (kingdomState.prosperity / kingdomProsperityMilestone) * 100
+  }%` as `${number}%`;
+  const kingdomLegacyMilestone = getKingdomProsperityMilestone(
+    kingdomState.legacy,
+  );
+  const kingdomLegacyPercent = `${
+    (kingdomState.legacy / kingdomLegacyMilestone) * 100
+  }%` as `${number}%`;
+  const kingdomStateLabel = getKingdomStateLabel(kingdomState.prosperity);
   const simulatedDayNumber = getSimulatedDayNumber(simulationStartDate, today);
 
   return (
@@ -1087,6 +1147,46 @@ export default function App() {
               <Text style={styles.sectionDate}>
                 Week of {weeklyBattle.weekStart}
               </Text>
+
+              <View style={styles.kingdomCard}>
+                <Image
+                  resizeMode="cover"
+                  source={CASTLE_PLACEHOLDER}
+                  style={styles.kingdomCastleImage}
+                />
+                <Text style={styles.kingdomCardTitle}>THE KINGDOM</Text>
+                <Text style={styles.kingdomStateLabel}>
+                  {kingdomStateLabel}
+                </Text>
+                <View style={styles.kingdomMetricRow}>
+                  <Text style={styles.kingdomMetricLabel}>Prosperity</Text>
+                  <Text style={styles.kingdomMetricValue}>
+                    {kingdomState.prosperity} / {kingdomProsperityMilestone}
+                  </Text>
+                </View>
+                <View style={styles.kingdomProsperityTrack}>
+                  <View
+                    style={[
+                      styles.kingdomProsperityFill,
+                      { width: kingdomProsperityPercent },
+                    ]}
+                  />
+                </View>
+                <View style={styles.kingdomMetricRow}>
+                  <Text style={styles.kingdomMetricLabel}>Legacy</Text>
+                  <Text style={styles.kingdomMetricValue}>
+                    {kingdomState.legacy} / {kingdomLegacyMilestone}
+                  </Text>
+                </View>
+                <View style={styles.kingdomLegacyTrack}>
+                  <View
+                    style={[
+                      styles.kingdomLegacyFill,
+                      { width: kingdomLegacyPercent },
+                    ]}
+                  />
+                </View>
+              </View>
 
               <View style={styles.questList}>
                 {kingdomChecklistGroups.map((group) => (
@@ -1778,6 +1878,78 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     marginBottom: 6,
+  },
+  kingdomCard: {
+    backgroundColor: '#242938',
+    borderColor: '#3E4661',
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 18,
+    overflow: 'hidden',
+    padding: 14,
+  },
+  kingdomCastleImage: {
+    alignSelf: 'stretch',
+    borderRadius: 10,
+    height: 160,
+    marginBottom: 14,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  kingdomCardTitle: {
+    color: '#F4F1DE',
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  kingdomStateLabel: {
+    color: '#F6C453',
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 14,
+  },
+  kingdomMetricRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  kingdomMetricLabel: {
+    color: '#A8B0C7',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  kingdomMetricValue: {
+    color: '#F4F1DE',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  kingdomProsperityTrack: {
+    backgroundColor: '#171923',
+    borderColor: '#3E4661',
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 14,
+    marginBottom: 14,
+    overflow: 'hidden',
+  },
+  kingdomProsperityFill: {
+    backgroundColor: '#55D187',
+    borderRadius: 8,
+    height: '100%',
+  },
+  kingdomLegacyTrack: {
+    backgroundColor: '#171923',
+    borderColor: '#3E4661',
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 14,
+    overflow: 'hidden',
+  },
+  kingdomLegacyFill: {
+    backgroundColor: '#A970FF',
+    borderRadius: 8,
+    height: '100%',
   },
   kingdomChecklistRow: {
     alignItems: 'center',

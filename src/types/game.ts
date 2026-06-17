@@ -83,6 +83,12 @@ export type KingdomChecklistItem = {
   completed: boolean;
 };
 
+export type KingdomState = {
+  id: string;
+  prosperity: number;
+  legacy: number;
+};
+
 export type GameState = {
   player: Player;
   heroAttributes: HeroAttributes;
@@ -92,4 +98,5 @@ export type GameState = {
   weeklyBattle: WeeklyBattlePreview;
   finalizedBattle: FinalizedBattleResult | null;
   kingdomChecklist: KingdomChecklistItem[];
+  kingdomState: KingdomState;
 };
