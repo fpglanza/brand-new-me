@@ -4,6 +4,7 @@ import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { WeeklyBattlePreview as WeeklyBattlePreviewData } from '../types/game';
 
 type WeeklyBattlePreviewProps = {
+  compact?: boolean;
   weeklyBattle: WeeklyBattlePreviewData;
   onPress?: () => void;
 };
@@ -11,6 +12,7 @@ type WeeklyBattlePreviewProps = {
 const WEEKLY_PROGRESS_ANIMATION_MS = 900;
 
 export function WeeklyBattlePreview({
+  compact = false,
   onPress,
   weeklyBattle,
 }: WeeklyBattlePreviewProps) {
@@ -35,43 +37,56 @@ export function WeeklyBattlePreview({
     <Container
       accessibilityRole={onPress ? 'button' : undefined}
       onPress={onPress}
-      style={styles.card}
+      style={[styles.card, compact ? styles.cardCompact : null]}
     >
-      <Text style={styles.title}>WEEKLY CHALLENGE</Text>
-      <View style={styles.row}>
+      <Text style={[styles.title, compact ? styles.titleCompact : null]}>
+        WEEKLY CHALLENGE
+      </Text>
+      <View style={[styles.row, compact ? styles.rowCompact : null]}>
         <Text style={styles.label}>Victory Days</Text>
         <Text style={styles.value}>{weeklyBattle.victoryDays} / 7</Text>
       </View>
-      <View style={styles.progressTrack}>
+      <View
+        style={[
+          styles.progressTrack,
+          compact ? styles.progressTrackCompact : null,
+        ]}
+      >
         <Animated.View
           style={[styles.progressFill, { width: victoryDaysWidth }]}
         />
       </View>
-      <View style={styles.row}>
+      <View style={[styles.row, compact ? styles.rowCompact : null]}>
         <Text style={styles.label}>Strong Days</Text>
         <Text style={styles.value}>{weeklyBattle.strongDays}</Text>
       </View>
-      <View style={styles.row}>
+      <View style={[styles.row, compact ? styles.rowCompact : null]}>
         <Text style={styles.label}>Legendary Days</Text>
         <Text style={styles.value}>{weeklyBattle.legendaryDays}</Text>
       </View>
-      <View style={styles.row}>
+      <View style={[styles.row, compact ? styles.rowCompact : null]}>
         <Text style={styles.label}>Projected Result</Text>
         <Text style={styles.result}>{weeklyBattle.result}</Text>
       </View>
-      <Text style={styles.flavor}>{weeklyBattle.flavorText}</Text>
+      <Text style={[styles.flavor, compact ? styles.flavorCompact : null]}>
+        {weeklyBattle.flavorText}
+      </Text>
     </Container>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#242938',
-    borderColor: '#3E4661',
+    backgroundColor: '#1E2331',
+    borderColor: '#3B435C',
     borderRadius: 12,
     borderWidth: 1,
     marginBottom: 28,
     padding: 16,
+  },
+  cardCompact: {
+    marginBottom: 14,
+    padding: 12,
   },
   title: {
     color: '#F4F1DE',
@@ -79,11 +94,17 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     marginBottom: 12,
   },
+  titleCompact: {
+    marginBottom: 8,
+  },
   row: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 8,
+  },
+  rowCompact: {
+    marginBottom: 5,
   },
   progressTrack: {
     backgroundColor: '#171923',
@@ -93,6 +114,9 @@ const styles = StyleSheet.create({
     height: 12,
     marginBottom: 12,
     overflow: 'hidden',
+  },
+  progressTrackCompact: {
+    marginBottom: 8,
   },
   progressFill: {
     backgroundColor: '#A970FF',
@@ -120,5 +144,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 20,
     marginTop: 4,
+  },
+  flavorCompact: {
+    lineHeight: 18,
+    marginTop: 2,
   },
 });

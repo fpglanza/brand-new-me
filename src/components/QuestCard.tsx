@@ -1,15 +1,66 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { Quest } from '../types/game';
 
 type QuestCardProps = {
   quest: Quest;
   onToggle: (quest: Quest) => void;
+  showCategoryLabel?: boolean;
 };
 
-export function QuestCard({ quest, onToggle }: QuestCardProps) {
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+const CARRIED_OVER_TITLE_SUFFIX = ' — Carried Over';
+
+function isCarriedOverQuest(quest: Quest) {
   return (
-    <Pressable
+    quest.source === 'carryover' ||
+    quest.title.endsWith(CARRIED_OVER_TITLE_SUFFIX)
+  );
+}
+
+function getDisplayQuestTitle(quest: Quest) {
+  if (!isCarriedOverQuest(quest)) {
+    return quest.title;
+  }
+
+  return quest.title.replace(CARRIED_OVER_TITLE_SUFFIX, '');
+}
+
+export function QuestCard({
+  quest,
+  onToggle,
+  showCategoryLabel = true,
+}: QuestCardProps) {
+  const pulseScale = useRef(new Animated.Value(1)).current;
+  const previousCompletedRef = useRef(quest.completed);
+  const isBonusQuest = quest.source === 'bonus';
+  const isCarriedOver = isCarriedOverQuest(quest);
+  const displayTitle = getDisplayQuestTitle(quest);
+
+  useEffect(() => {
+    if (!previousCompletedRef.current && quest.completed) {
+      pulseScale.stopAnimation();
+      pulseScale.setValue(1);
+      Animated.sequence([
+        Animated.timing(pulseScale, {
+          duration: 120,
+          toValue: 1.025,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseScale, {
+          duration: 150,
+          toValue: 1,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+
+    previousCompletedRef.current = quest.completed;
+  }, [pulseScale, quest.completed]);
+
+  return (
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityState={{
         selected: quest.completed,
@@ -18,6 +69,7 @@ export function QuestCard({ quest, onToggle }: QuestCardProps) {
       style={[
         styles.questCard,
         quest.completed ? styles.questCompleted : styles.questIncomplete,
+        { transform: [{ scale: pulseScale }] },
       ]}
     >
       <View
@@ -29,13 +81,20 @@ export function QuestCard({ quest, onToggle }: QuestCardProps) {
         ]}
       />
       <View style={styles.questBody}>
-        <View style={styles.questMetaRow}>
-          <Text style={styles.questCategory}>{quest.category}</Text>
-          {quest.source === 'bonus' ? (
-            <Text style={styles.questSourceBadge}>BONUS</Text>
-          ) : null}
-        </View>
-        <Text style={styles.questTitle}>{quest.title}</Text>
+        {showCategoryLabel || isBonusQuest || isCarriedOver ? (
+          <View style={styles.questMetaRow}>
+            {showCategoryLabel ? (
+              <Text style={styles.questCategory}>{quest.category}</Text>
+            ) : null}
+            {isBonusQuest ? (
+              <Text style={styles.questSourceBadge}>BONUS</Text>
+            ) : null}
+            {isCarriedOver ? (
+              <Text style={styles.questCarriedOverBadge}>CARRIED OVER</Text>
+            ) : null}
+          </View>
+        ) : null}
+        <Text style={styles.questTitle}>{displayTitle}</Text>
         <Text style={styles.questDescription}>{quest.description}</Text>
         <Text style={styles.questReward}>+{quest.xp} XP</Text>
       </View>
@@ -47,7 +106,7 @@ export function QuestCard({ quest, onToggle }: QuestCardProps) {
       >
         {quest.completed ? <Text style={styles.questStatusText}>✓</Text> : null}
       </View>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -65,31 +124,36 @@ export function QuestLoadingCard() {
 const styles = StyleSheet.create({
   questCard: {
     alignItems: 'center',
-    backgroundColor: '#171923',
-    borderColor: '#3E4661',
-    borderRadius: 10,
+    backgroundColor: '#1C2130',
+    borderColor: '#4B5471',
+    borderRadius: 8,
     borderWidth: 1,
+    elevation: 1,
     flexDirection: 'row',
     minHeight: 74,
     overflow: 'hidden',
     paddingRight: 16,
+    shadowColor: '#000000',
+    shadowOffset: { height: 2, width: 0 },
+    shadowOpacity: 0.16,
+    shadowRadius: 3,
   },
   questCompleted: {
     borderColor: '#55D187',
   },
   questIncomplete: {
-    borderColor: '#3E4661',
+    borderColor: '#4B5471',
   },
   questAccent: {
     alignSelf: 'stretch',
-    marginRight: 16,
-    width: 5,
+    marginRight: 14,
+    width: 7,
   },
   questAccentCompleted: {
     backgroundColor: '#55D187',
   },
   questAccentIncomplete: {
-    backgroundColor: '#3E4661',
+    backgroundColor: '#7A5A2A',
   },
   questBody: {
     flex: 1,
@@ -110,6 +174,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#F6C453',
     borderRadius: 6,
     color: '#171923',
+    fontSize: 10,
+    fontWeight: '900',
+    overflow: 'hidden',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  questCarriedOverBadge: {
+    backgroundColor: '#4A2B17',
+    borderRadius: 6,
+    color: '#F2A65A',
     fontSize: 10,
     fontWeight: '900',
     overflow: 'hidden',

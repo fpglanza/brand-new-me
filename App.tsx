@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import {
   Animated,
@@ -9,11 +9,13 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
 import { DarkEmpressCard } from './src/components/DarkEmpressCard';
 import { FinalizedBattleCard } from './src/components/FinalizedBattleCard';
+import { FloatingBackButton } from './src/components/FloatingBackButton';
 import { HeroWalkSprite } from './src/components/HeroWalkSprite';
 import { QuestCard, QuestLoadingCard } from './src/components/QuestCard';
 import { WeeklyBattlePreview } from './src/components/WeeklyBattlePreview';
@@ -74,12 +76,24 @@ const QUEST_CATEGORY_ORDER = [
   'Recovery',
 ];
 
+const QUEST_CATEGORY_DISPLAY_LABELS: Record<string, string> = {
+  Appearance: '✦ APPEARANCE ✦',
+  Mind: '◆ MIND ◆',
+  Fuel: '✚ FUEL ✚',
+  Body: '⚔ BODY ⚔',
+  Purpose: '✦ PURPOSE ✦',
+  Recovery: '☾ RECOVERY ☾',
+};
+
 const DAILY_PROGRESS_TARGET = 100;
 const HERO_XP_TOAST_DURATION_MS = 1500;
 const HERO_XP_ENTRY_ANIMATION_MS = 1000;
 const DAILY_PROGRESS_ENTRY_ANIMATION_MS = 800;
 const HERO_ATTRIBUTE_ENTRY_ANIMATION_MS = 850;
 const LEVEL_UP_OVERLAY_DURATION_MS = 2600;
+const PAGE_TRANSITION_DURATION_MS = 180;
+const PAGE_TRANSITION_START_OPACITY = 0.86;
+const PAGE_TRANSITION_START_TRANSLATE_Y = 6;
 
 type AppView = 'home' | 'quests' | 'hero' | 'shadow' | 'kingdom';
 
@@ -266,6 +280,10 @@ function getHeroAttributeMilestone(value: number) {
   return Math.ceil(value / 5000) * 5000;
 }
 
+function getQuestCategoryDisplayLabel(category: string) {
+  return QUEST_CATEGORY_DISPLAY_LABELS[category] ?? category.toUpperCase();
+}
+
 function getKingdomProsperityMilestone(value: number) {
   const baseMilestone = KINGDOM_PROSPERITY_MILESTONES.find(
     (milestone) => value <= milestone,
@@ -303,6 +321,7 @@ function getKingdomStateLabel(prosperity: number) {
 }
 
 export default function App() {
+  const windowDimensions = useWindowDimensions();
   const initialToday = getLocalDateString();
   const [db, setDb] = useState<SQLiteDatabase | null>(null);
   const [player, setPlayer] = useState<Player>(DEFAULT_PLAYER);
@@ -343,6 +362,12 @@ export default function App() {
   const xpToastOpacity = useRef(new Animated.Value(0)).current;
   const xpToastTranslateY = useRef(new Animated.Value(12)).current;
   const levelUpOpacity = useRef(new Animated.Value(0)).current;
+  const pageTransitionOpacity = useRef(
+    new Animated.Value(PAGE_TRANSITION_START_OPACITY),
+  ).current;
+  const pageTransitionTranslateY = useRef(
+    new Animated.Value(PAGE_TRANSITION_START_TRANSLATE_Y),
+  ).current;
   const xpToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const levelUpTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousPlayerRef = useRef<Player>(DEFAULT_PLAYER);
@@ -478,6 +503,26 @@ export default function App() {
     heroAttributes.purpose,
     isLoading,
   ]);
+
+  useLayoutEffect(() => {
+    pageTransitionOpacity.stopAnimation();
+    pageTransitionTranslateY.stopAnimation();
+    pageTransitionOpacity.setValue(PAGE_TRANSITION_START_OPACITY);
+    pageTransitionTranslateY.setValue(PAGE_TRANSITION_START_TRANSLATE_Y);
+
+    Animated.parallel([
+      Animated.timing(pageTransitionOpacity, {
+        duration: PAGE_TRANSITION_DURATION_MS,
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+      Animated.timing(pageTransitionTranslateY, {
+        duration: PAGE_TRANSITION_DURATION_MS,
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [activeView, pageTransitionOpacity, pageTransitionTranslateY]);
 
   useEffect(() => {
     return () => {
@@ -770,17 +815,41 @@ export default function App() {
   }%` as `${number}%`;
   const kingdomStateLabel = getKingdomStateLabel(kingdomState.prosperity);
   const simulatedDayNumber = getSimulatedDayNumber(simulationStartDate, today);
+  const isCompactMobile =
+    windowDimensions.width <= 480 && windowDimensions.height <= 900;
+  const homeHeroSpriteSize = isCompactMobile ? 118 : 160;
+  const heroDetailSpriteSize = isCompactMobile ? 150 : 220;
+  const shouldUseCompactPageSpacing =
+    isCompactMobile &&
+    (activeView === 'home' || activeView === 'hero' || activeView === 'shadow');
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
       <ScrollView
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[
+          styles.container,
+          shouldUseCompactPageSpacing ? styles.compactContainer : null,
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        {activeView === 'home' ? (
+        <Animated.View
+          style={[
+            styles.pageTransition,
+            {
+              opacity: pageTransitionOpacity,
+              transform: [{ translateY: pageTransitionTranslateY }],
+            },
+          ]}
+        >
+          {activeView === 'home' ? (
           <>
-            <View style={styles.homeDateBlock}>
+            <View
+              style={[
+                styles.homeDateBlock,
+                isCompactMobile ? styles.homeDateBlockCompact : null,
+              ]}
+            >
               <Text style={styles.homeDateWeekday}>{homeDate.weekday}</Text>
               <Text style={styles.homeDateFull}>{homeDate.fullDate}</Text>
             </View>
@@ -788,15 +857,43 @@ export default function App() {
             <Pressable
               accessibilityRole="button"
               onPress={() => setActiveView('hero')}
-              style={styles.heroSpriteCard}
+              style={({ pressed }) => [
+                styles.heroSpriteCard,
+                isCompactMobile ? styles.heroSpriteCardCompact : null,
+                pressed ? styles.homeActionPressed : null,
+              ]}
             >
-              <Text style={styles.heroTitle}>
+              <Text
+                style={[
+                  styles.heroTitle,
+                  isCompactMobile ? styles.heroTitleCompact : null,
+                ]}
+              >
                 {heroTitle.toUpperCase()}
               </Text>
-              <Text style={styles.heroPath}>{heroPath}</Text>
-              <HeroWalkSprite size={160} />
-              <Text style={styles.homeHeroLevel}>Level {player.level}</Text>
-              <Text style={styles.homeHeroTotalXp}>
+              <Text
+                style={[
+                  styles.heroPath,
+                  isCompactMobile ? styles.homeHeroPathCompact : null,
+                ]}
+              >
+                {heroPath}
+              </Text>
+              <HeroWalkSprite size={homeHeroSpriteSize} />
+              <Text
+                style={[
+                  styles.homeHeroLevel,
+                  isCompactMobile ? styles.homeHeroLevelCompact : null,
+                ]}
+              >
+                Level {player.level}
+              </Text>
+              <Text
+                style={[
+                  styles.homeHeroTotalXp,
+                  isCompactMobile ? styles.homeHeroTotalXpCompact : null,
+                ]}
+              >
                 Total XP: {player.totalXp}
               </Text>
               <View style={styles.heroXpTrack}>
@@ -810,14 +907,31 @@ export default function App() {
               <Text style={styles.homeHeroXpMeta}>
                 {currentLevelXp} / {XP_GOAL}
               </Text>
-              <Text style={styles.heroSpriteHint}>View Hero Progress</Text>
+              <Text
+                style={[
+                  styles.heroSpriteHint,
+                  isCompactMobile ? styles.heroSpriteHintCompact : null,
+                ]}
+              >
+                View Hero Progress
+              </Text>
             </Pressable>
 
-            <View style={styles.homeActions}>
+            <View
+              style={[
+                styles.homeActions,
+                isCompactMobile ? styles.homeActionsCompact : null,
+              ]}
+            >
               <Pressable
                 accessibilityRole="button"
                 onPress={() => setActiveView('quests')}
-                style={styles.primaryButton}
+                style={({ pressed }) => [
+                  styles.gameButton,
+                  styles.primaryButton,
+                  isCompactMobile ? styles.homeButtonCompact : null,
+                  pressed ? styles.homeActionPressed : null,
+                ]}
               >
                 <Text style={styles.primaryButtonText}>START QUEST</Text>
               </Pressable>
@@ -825,7 +939,12 @@ export default function App() {
               <Pressable
                 accessibilityRole="button"
                 onPress={() => setActiveView('kingdom')}
-                style={styles.secondaryButton}
+                style={({ pressed }) => [
+                  styles.gameButton,
+                  styles.secondaryButton,
+                  isCompactMobile ? styles.homeButtonCompact : null,
+                  pressed ? styles.homeActionPressed : null,
+                ]}
               >
                 <Text style={styles.secondaryButtonText}>
                   PROTECT THE KINGDOM
@@ -835,7 +954,12 @@ export default function App() {
               <Pressable
                 accessibilityRole="button"
                 onPress={() => setActiveView('shadow')}
-                style={styles.shadowActionButton}
+                style={({ pressed }) => [
+                  styles.gameButton,
+                  styles.shadowActionButton,
+                  isCompactMobile ? styles.homeButtonCompact : null,
+                  pressed ? styles.homeActionPressed : null,
+                ]}
               >
                 <Text style={styles.shadowActionButtonText}>
                   WEEKLY CHALLENGE
@@ -843,7 +967,12 @@ export default function App() {
               </Pressable>
             </View>
 
-            <View style={styles.dailyProgressCard}>
+            <View
+              style={[
+                styles.dailyProgressCard,
+                isCompactMobile ? styles.dailyProgressCardCompact : null,
+              ]}
+            >
               <View style={styles.dailyProgressHeader}>
                 <Text style={styles.dailyProgressTitle}>DAILY PROGRESS</Text>
                 <Text style={styles.dailyProgressValue}>
@@ -1036,26 +1165,22 @@ export default function App() {
               ) : null}
             </View>
           </>
-        ) : null}
+          ) : null}
 
-        {activeView === 'quests' ? (
+          {activeView === 'quests' ? (
           <>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setActiveView('home')}
-              style={styles.backButton}
-            >
-              <Text style={styles.backButtonText}>Back</Text>
-            </Pressable>
-
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>TODAY'S QUESTS</Text>
+              <Text style={[styles.sectionTitle, styles.questSectionTitle]}>
+                TODAY'S QUESTS
+              </Text>
               {debugDateOverride ? (
-                <Text style={styles.debugDateLabel}>
+                <Text style={[styles.debugDateLabel, styles.questHeaderText]}>
                   DEV DATE ACTIVE: {debugDateOverride}
                 </Text>
               ) : null}
-              <Text style={styles.sectionDate}>{today}</Text>
+              <Text style={[styles.sectionDate, styles.questSectionDate]}>
+                {today}
+              </Text>
 
               <View style={styles.questList}>
                 {isLoading ? <QuestLoadingCard /> : null}
@@ -1064,7 +1189,7 @@ export default function App() {
                   ? questGroups.map((group) => (
                       <View key={group.category} style={styles.questGroupCard}>
                         <Text style={styles.questGroupTitle}>
-                          {group.category.toUpperCase()}
+                          {getQuestCategoryDisplayLabel(group.category)}
                         </Text>
                         <View style={styles.questGroupList}>
                           {group.quests.map((quest) => (
@@ -1072,6 +1197,7 @@ export default function App() {
                               key={quest.id}
                               onToggle={toggleQuest}
                               quest={quest}
+                              showCategoryLabel={false}
                             />
                           ))}
                         </View>
@@ -1127,26 +1253,23 @@ export default function App() {
               ) : null}
             </View>
           </>
-        ) : null}
+          ) : null}
 
-        {activeView === 'kingdom' ? (
+          {activeView === 'kingdom' ? (
           <>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setActiveView('home')}
-              style={styles.backButton}
-            >
-              <Text style={styles.backButtonText}>Back</Text>
-            </Pressable>
-
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>PROTECT THE KINGDOM</Text>
-              <Text style={styles.kingdomSubtitle}>
-                Keep the realm from falling into disorder.
-              </Text>
-              <Text style={styles.sectionDate}>
-                Week of {weeklyBattle.weekStart}
-              </Text>
+              <View style={styles.kingdomHeaderBanner}>
+                <View style={styles.kingdomHeaderDivider} />
+                <Text style={[styles.sectionTitle, styles.kingdomHeaderTitle]}>
+                  PROTECT THE KINGDOM
+                </Text>
+                <Text style={styles.kingdomSubtitle}>
+                  Keep the realm from falling into disorder.
+                </Text>
+                <Text style={[styles.sectionDate, styles.kingdomHeaderDate]}>
+                  Week of {weeklyBattle.weekStart}
+                </Text>
+              </View>
 
               <View style={styles.kingdomCard}>
                 <Image
@@ -1238,32 +1361,50 @@ export default function App() {
               </View>
             </View>
           </>
-        ) : null}
+          ) : null}
 
-        {activeView === 'hero' ? (
+          {activeView === 'hero' ? (
           <>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setActiveView('home')}
-              style={styles.backButton}
+            <View
+              style={[
+                styles.heroTitleBlock,
+                isCompactMobile ? styles.heroTitleBlockCompact : null,
+              ]}
             >
-              <Text style={styles.backButtonText}>Back</Text>
-            </Pressable>
-
-            <View style={styles.heroTitleBlock}>
-              <Text style={styles.modalTitle}>{heroTitle.toUpperCase()}</Text>
-              <Text style={styles.heroPath}>{heroPath}</Text>
+              <Text
+                style={[
+                  styles.modalTitle,
+                  isCompactMobile ? styles.heroModalTitleCompact : null,
+                ]}
+              >
+                {heroTitle.toUpperCase()}
+              </Text>
+              <Text
+                style={[
+                  styles.heroPath,
+                  isCompactMobile ? styles.heroPathCompact : null,
+                ]}
+              >
+                {heroPath}
+              </Text>
             </View>
-            <View style={styles.heroDetailSpriteCard}>
-              <HeroWalkSprite size={220} />
+            <View
+              style={[
+                styles.heroDetailSpriteCard,
+                isCompactMobile ? styles.heroDetailSpriteCardCompact : null,
+              ]}
+            >
+              <HeroWalkSprite size={heroDetailSpriteSize} />
             </View>
 
-            <View style={styles.heroProgressCard}>
+            <View
+              style={[
+                styles.heroProgressCard,
+                isCompactMobile ? styles.heroProgressCardCompact : null,
+              ]}
+            >
               <Text style={styles.heroProgressTitle}>HERO XP</Text>
               <Text style={styles.heroProgressValue}>Level {player.level}</Text>
-              <Text style={styles.heroProgressMeta}>
-                Total XP: {player.totalXp}
-              </Text>
               <View style={styles.heroXpTrack}>
                 <Animated.View
                   style={[
@@ -1272,12 +1413,22 @@ export default function App() {
                   ]}
                 />
               </View>
-              <Text style={styles.heroProgressMeta}>
-                {currentLevelXp} / {XP_GOAL}
-              </Text>
+              <View style={styles.heroXpMetaRow}>
+                <Text style={styles.heroProgressMeta}>
+                  {currentLevelXp} / {XP_GOAL}
+                </Text>
+                <Text style={styles.heroProgressMetaRight}>
+                  Total XP {player.totalXp}
+                </Text>
+              </View>
             </View>
 
-            <View style={styles.heroProgressCard}>
+            <View
+              style={[
+                styles.heroProgressCard,
+                isCompactMobile ? styles.heroProgressCardCompact : null,
+              ]}
+            >
               <Text style={styles.heroProgressTitle}>ATTRIBUTES</Text>
               {HERO_ATTRIBUTE_KEYS.map((attribute) => {
                 const attributeValue = heroAttributes[attribute.key];
@@ -1291,7 +1442,13 @@ export default function App() {
                 });
 
                 return (
-                  <View key={attribute.key} style={styles.statRow}>
+                  <View
+                    key={attribute.key}
+                    style={[
+                      styles.statRow,
+                      isCompactMobile ? styles.statRowCompact : null,
+                    ]}
+                  >
                     <View style={styles.statTextBlock}>
                       <Text style={styles.statLabel}>{attribute.label}</Text>
                       <Text style={styles.statValue}>
@@ -1311,31 +1468,31 @@ export default function App() {
               })}
             </View>
           </>
-        ) : null}
+          ) : null}
 
-        {activeView === 'shadow' ? (
+          {activeView === 'shadow' ? (
           <>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setActiveView('home')}
-              style={styles.backButton}
-            >
-              <Text style={styles.backButtonText}>Back</Text>
-            </Pressable>
-
-            <Text style={styles.modalTitle}>WEEKLY CHALLENGE</Text>
             <DarkEmpressCard
+              compact={isCompactMobile}
               currentPower={shadow.currentPower}
               maxPower={shadow.maxPower}
               result={finalizedBattle?.result}
             />
-            <WeeklyBattlePreview weeklyBattle={weeklyBattle} />
+            <WeeklyBattlePreview
+              compact={isCompactMobile}
+              weeklyBattle={weeklyBattle}
+            />
             {finalizedBattle ? (
               <FinalizedBattleCard finalizedBattle={finalizedBattle} />
             ) : null}
           </>
-        ) : null}
+          ) : null}
+        </Animated.View>
       </ScrollView>
+
+      {activeView !== 'home' ? (
+        <FloatingBackButton onPress={() => setActiveView('home')} />
+      ) : null}
 
       {xpToastAmount ? (
         <Animated.View
@@ -1407,30 +1564,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 28,
   },
+  compactContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  pageTransition: {
+    flex: 1,
+    width: '100%',
+  },
   modalTitle: {
     color: '#F4F1DE',
     fontSize: 24,
     fontWeight: '900',
     marginBottom: 16,
   },
-  backButton: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#242938',
-    borderColor: '#3E4661',
-    borderRadius: 8,
-    borderWidth: 1,
-    marginBottom: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  backButtonText: {
-    color: '#F4F1DE',
-    fontSize: 13,
-    fontWeight: '900',
-  },
   homeDateBlock: {
     alignItems: 'center',
     marginBottom: 12,
+  },
+  homeDateBlockCompact: {
+    marginBottom: 8,
   },
   homeDateWeekday: {
     color: '#A8B0C7',
@@ -1448,6 +1601,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
+  heroTitleBlockCompact: {
+    marginBottom: 8,
+  },
   heroTitle: {
     color: '#F4F1DE',
     fontSize: 27,
@@ -1455,12 +1611,22 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     textAlign: 'center',
   },
+  heroTitleCompact: {
+    fontSize: 23,
+    marginBottom: 4,
+  },
   heroPath: {
     color: '#F6C453',
     fontSize: 13,
     fontWeight: '900',
     marginBottom: 18,
     textTransform: 'uppercase',
+  },
+  heroPathCompact: {
+    marginBottom: 8,
+  },
+  homeHeroPathCompact: {
+    marginBottom: 6,
   },
   heroSpriteCard: {
     alignItems: 'center',
@@ -1476,16 +1642,30 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.28,
     shadowRadius: 18,
   },
+  heroSpriteCardCompact: {
+    marginBottom: 12,
+    minHeight: 330,
+    padding: 14,
+  },
   heroDetailSpriteCard: {
     alignItems: 'center',
     backgroundColor: '#242938',
     borderColor: '#A970FF',
     borderRadius: 14,
     borderWidth: 1,
+    elevation: 3,
     justifyContent: 'center',
     marginBottom: 16,
     minHeight: 280,
     padding: 22,
+    shadowColor: '#A970FF',
+    shadowOpacity: 0.26,
+    shadowRadius: 18,
+  },
+  heroDetailSpriteCardCompact: {
+    marginBottom: 10,
+    minHeight: 188,
+    padding: 8,
   },
   heroSpriteHint: {
     color: '#A8B0C7',
@@ -1493,6 +1673,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginTop: 10,
     textTransform: 'uppercase',
+  },
+  heroSpriteHintCompact: {
+    marginTop: 6,
   },
   characterStage: {
     alignItems: 'center',
@@ -1723,11 +1906,18 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     marginBottom: 4,
   },
+  homeHeroLevelCompact: {
+    fontSize: 19,
+    marginBottom: 2,
+  },
   homeHeroTotalXp: {
     color: '#F6C453',
     fontSize: 14,
     fontWeight: '900',
     marginBottom: 12,
+  },
+  homeHeroTotalXpCompact: {
+    marginBottom: 8,
   },
   heroXpTrack: {
     alignSelf: 'stretch',
@@ -1754,42 +1944,81 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 18,
   },
-  primaryButton: {
+  homeActionsCompact: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  homeActionPressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.98 }],
+  },
+  gameButton: {
     alignItems: 'center',
-    backgroundColor: '#F6C453',
-    borderRadius: 10,
+    borderBottomWidth: 4,
+    borderRadius: 12,
+    borderTopWidth: 1,
+    elevation: 4,
+    justifyContent: 'center',
+    overflow: 'hidden',
     paddingVertical: 15,
+    shadowColor: '#000000',
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 0.24,
+    shadowRadius: 6,
+  },
+  primaryButton: {
+    backgroundColor: '#D9A93B',
+    borderBottomWidth: 4,
+    borderColor: '#F6C453',
+    borderTopColor: '#FFE08A',
+    borderLeftColor: '#8E641E',
+    borderRightColor: '#8E641E',
+    borderBottomColor: '#6D4915',
+    borderWidth: 2,
+  },
+  homeButtonCompact: {
+    paddingVertical: 12,
   },
   primaryButtonText: {
     color: '#171923',
     fontSize: 16,
     fontWeight: '900',
+    letterSpacing: 0,
+    textShadowColor: 'rgba(244, 241, 222, 0.35)',
+    textShadowOffset: { height: 1, width: 0 },
+    textShadowRadius: 1,
   },
   secondaryButton: {
-    alignItems: 'center',
-    backgroundColor: '#242938',
+    backgroundColor: '#2D3244',
+    borderBottomWidth: 4,
     borderColor: '#A970FF',
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingVertical: 14,
+    borderTopColor: '#C8A3FF',
+    borderLeftColor: '#3E4661',
+    borderRightColor: '#3E4661',
+    borderBottomColor: '#59627F',
+    borderWidth: 2,
   },
   secondaryButtonText: {
     color: '#F4F1DE',
     fontSize: 15,
     fontWeight: '900',
+    letterSpacing: 0,
   },
   shadowActionButton: {
-    alignItems: 'center',
-    backgroundColor: '#242938',
-    borderColor: '#6F42C1',
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingVertical: 14,
+    backgroundColor: '#261F38',
+    borderBottomWidth: 4,
+    borderColor: '#A970FF',
+    borderTopColor: '#C8A3FF',
+    borderLeftColor: '#6F42C1',
+    borderRightColor: '#6F42C1',
+    borderBottomColor: '#4E3477',
+    borderWidth: 2,
   },
   shadowActionButtonText: {
     color: '#A970FF',
     fontSize: 15,
     fontWeight: '900',
+    letterSpacing: 0,
   },
   heroProgressCard: {
     backgroundColor: '#242938',
@@ -1799,10 +2028,18 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     padding: 16,
   },
+  heroProgressCardCompact: {
+    marginBottom: 10,
+    padding: 12,
+  },
   heroProgressTitle: {
     color: '#A970FF',
     fontSize: 13,
     fontWeight: '900',
+    marginBottom: 8,
+  },
+  heroModalTitleCompact: {
+    fontSize: 22,
     marginBottom: 8,
   },
   heroProgressValue: {
@@ -1816,6 +2053,17 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
   },
+  heroProgressMetaRight: {
+    color: '#F6C453',
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  heroXpMetaRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
   statRow: {
     alignItems: 'center',
     borderTopColor: '#3E4661',
@@ -1824,6 +2072,9 @@ const styles = StyleSheet.create({
     gap: 12,
     justifyContent: 'space-between',
     paddingVertical: 10,
+  },
+  statRowCompact: {
+    paddingVertical: 7,
   },
   statTextBlock: {
     flex: 1,
@@ -1861,11 +2112,19 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     marginBottom: 4,
   },
+  questSectionTitle: {
+    marginBottom: 6,
+    textAlign: 'center',
+  },
   sectionDate: {
     color: '#A8B0C7',
     fontSize: 14,
     fontWeight: '800',
     marginBottom: 14,
+  },
+  questSectionDate: {
+    marginBottom: 16,
+    textAlign: 'center',
   },
   debugDateLabel: {
     color: '#F6C453',
@@ -1873,11 +2132,44 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     marginBottom: 4,
   },
+  questHeaderText: {
+    textAlign: 'center',
+  },
   kingdomSubtitle: {
     color: '#A8B0C7',
     fontSize: 14,
     fontWeight: '700',
     marginBottom: 6,
+    textAlign: 'center',
+  },
+  kingdomHeaderBanner: {
+    alignItems: 'center',
+    backgroundColor: '#202535',
+    borderColor: '#4B5471',
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 14,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
+  },
+  kingdomHeaderDate: {
+    color: '#F6C453',
+    marginBottom: 0,
+    textAlign: 'center',
+  },
+  kingdomHeaderDivider: {
+    backgroundColor: '#7A5A2A',
+    borderRadius: 999,
+    height: 2,
+    marginBottom: 10,
+    opacity: 0.9,
+    width: 88,
+  },
+  kingdomHeaderTitle: {
+    color: '#F4F1DE',
+    marginBottom: 6,
+    textAlign: 'center',
   },
   kingdomCard: {
     backgroundColor: '#242938',
@@ -1998,6 +2290,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 16,
     padding: 14,
+  },
+  dailyProgressCardCompact: {
+    marginBottom: 8,
+    padding: 12,
   },
   dailyProgressHeader: {
     alignItems: 'center',
@@ -2210,17 +2506,31 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   questGroupCard: {
-    backgroundColor: '#242938',
-    borderColor: '#3E4661',
-    borderRadius: 14,
+    backgroundColor: '#202535',
+    borderColor: '#5A4B38',
+    borderRadius: 10,
     borderWidth: 1,
-    padding: 12,
+    overflow: 'hidden',
+    paddingHorizontal: 10,
+    paddingTop: 0,
+    paddingBottom: 10,
   },
   questGroupTitle: {
-    color: '#A970FF',
+    alignSelf: 'stretch',
+    backgroundColor: '#171923',
+    borderBottomColor: '#5A4B38',
+    borderColor: '#30384F',
+    borderRadius: 0,
+    borderWidth: 1,
+    color: '#D9C08A',
     fontSize: 13,
     fontWeight: '900',
     marginBottom: 10,
+    marginHorizontal: -10,
+    overflow: 'hidden',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    textAlign: 'center',
   },
   questGroupList: {
     gap: 10,
