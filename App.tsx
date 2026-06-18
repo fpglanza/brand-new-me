@@ -29,6 +29,8 @@ import {
   completeBonusQuestInDatabase,
   finalizeCurrentWeekInDatabase,
   getDefaultQuestsForDate,
+  getXpNeededForLevel,
+  getXpProgress,
   getLocalDateString,
   loadGameState,
   openGameDatabase,
@@ -40,7 +42,6 @@ import {
   startNewWeekInDatabase,
   toggleKingdomChecklistItemInDatabase,
   toggleQuestInDatabase,
-  XP_GOAL,
 } from './src/database/db';
 import type {
   FinalizedBattleResult,
@@ -243,10 +244,24 @@ function getHeroPath(level: number) {
   return 'Path: Reclaiming Order';
 }
 
-function getHeroXpProgressPercentValue(player: Player) {
-  const currentLevelXp = player.totalXp - (player.level - 1) * XP_GOAL;
+function getHeroAttributeDisplayLabel(label: string) {
+  switch (label) {
+    case 'Body':
+      return 'BODY ⚔';
+    case 'Mind':
+      return 'MIND ◆';
+    case 'Purpose':
+      return 'PURPOSE ✦';
+    default:
+      return label;
+  }
+}
 
-  return Math.min(Math.max((currentLevelXp / XP_GOAL) * 100, 0), 100);
+function getHeroXpProgressPercentValue(player: Player) {
+  const currentLevelXp = getXpProgress(player.totalXp);
+  const nextLevelXp = getXpNeededForLevel(player.level);
+
+  return Math.min(Math.max((currentLevelXp / nextLevelXp) * 100, 0), 100);
 }
 
 function getLevelRecapAttributeGains(
@@ -774,7 +789,8 @@ export default function App() {
   const heroTitle = getHeroTitle(player.level);
   const heroPath = getHeroPath(player.level);
   const homeDate = getHomeDateParts(today);
-  const currentLevelXp = player.totalXp - (player.level - 1) * XP_GOAL;
+  const currentLevelXp = getXpProgress(player.totalXp);
+  const nextLevelXp = getXpNeededForLevel(player.level);
   const heroXpProgressWidth = heroXpProgressAnim.interpolate({
     inputRange: [0, 100],
     outputRange: ['0%', '100%'],
@@ -905,7 +921,7 @@ export default function App() {
                 />
               </View>
               <Text style={styles.homeHeroXpMeta}>
-                {currentLevelXp} / {XP_GOAL}
+                {currentLevelXp} / {nextLevelXp}
               </Text>
               <Text
                 style={[
@@ -1371,6 +1387,7 @@ export default function App() {
                 isCompactMobile ? styles.heroTitleBlockCompact : null,
               ]}
             >
+              <View style={styles.heroHeaderDivider} />
               <Text
                 style={[
                   styles.modalTitle,
@@ -1387,6 +1404,7 @@ export default function App() {
               >
                 {heroPath}
               </Text>
+              <View style={styles.heroHeaderDividerMuted} />
             </View>
             <View
               style={[
@@ -1394,7 +1412,9 @@ export default function App() {
                 isCompactMobile ? styles.heroDetailSpriteCardCompact : null,
               ]}
             >
+              <View style={styles.heroSpriteAura} />
               <HeroWalkSprite size={heroDetailSpriteSize} />
+              <View style={styles.heroSpritePedestal} />
             </View>
 
             <View
@@ -1404,6 +1424,7 @@ export default function App() {
               ]}
             >
               <Text style={styles.heroProgressTitle}>HERO XP</Text>
+              <View style={styles.heroPanelAccent} />
               <Text style={styles.heroProgressValue}>Level {player.level}</Text>
               <View style={styles.heroXpTrack}>
                 <Animated.View
@@ -1415,7 +1436,7 @@ export default function App() {
               </View>
               <View style={styles.heroXpMetaRow}>
                 <Text style={styles.heroProgressMeta}>
-                  {currentLevelXp} / {XP_GOAL}
+                  {currentLevelXp} / {nextLevelXp}
                 </Text>
                 <Text style={styles.heroProgressMetaRight}>
                   Total XP {player.totalXp}
@@ -1429,7 +1450,8 @@ export default function App() {
                 isCompactMobile ? styles.heroProgressCardCompact : null,
               ]}
             >
-              <Text style={styles.heroProgressTitle}>ATTRIBUTES</Text>
+              <Text style={styles.heroProgressTitle}>CORE TRAITS</Text>
+              <View style={styles.heroPanelAccent} />
               {HERO_ATTRIBUTE_KEYS.map((attribute) => {
                 const attributeValue = heroAttributes[attribute.key];
                 const attributeMilestone =
@@ -1450,7 +1472,9 @@ export default function App() {
                     ]}
                   >
                     <View style={styles.statTextBlock}>
-                      <Text style={styles.statLabel}>{attribute.label}</Text>
+                      <Text style={styles.statLabel}>
+                        {getHeroAttributeDisplayLabel(attribute.label)}
+                      </Text>
                       <Text style={styles.statValue}>
                         {attributeValue} / {attributeMilestone}
                       </Text>
@@ -1599,10 +1623,35 @@ const styles = StyleSheet.create({
   },
   heroTitleBlock: {
     alignItems: 'center',
-    marginBottom: 16,
+    backgroundColor: '#202535',
+    borderColor: '#4B5471',
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 14,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
   },
   heroTitleBlockCompact: {
     marginBottom: 8,
+    paddingTop: 10,
+    paddingBottom: 10,
+  },
+  heroHeaderDivider: {
+    backgroundColor: '#A970FF',
+    borderRadius: 999,
+    height: 2,
+    marginBottom: 10,
+    opacity: 0.85,
+    width: 108,
+  },
+  heroHeaderDividerMuted: {
+    backgroundColor: '#7A5A2A',
+    borderRadius: 999,
+    height: 1,
+    marginTop: -2,
+    opacity: 0.9,
+    width: 164,
   },
   heroTitle: {
     color: '#F4F1DE',
@@ -1649,23 +1698,44 @@ const styles = StyleSheet.create({
   },
   heroDetailSpriteCard: {
     alignItems: 'center',
-    backgroundColor: '#242938',
-    borderColor: '#A970FF',
+    backgroundColor: '#1E2331',
+    borderColor: '#B681FF',
     borderRadius: 14,
-    borderWidth: 1,
+    borderWidth: 2,
     elevation: 3,
     justifyContent: 'center',
     marginBottom: 16,
     minHeight: 280,
+    overflow: 'hidden',
     padding: 22,
+    position: 'relative',
     shadowColor: '#A970FF',
-    shadowOpacity: 0.26,
-    shadowRadius: 18,
+    shadowOpacity: 0.32,
+    shadowRadius: 20,
   },
   heroDetailSpriteCardCompact: {
     marginBottom: 10,
     minHeight: 188,
     padding: 8,
+  },
+  heroSpriteAura: {
+    backgroundColor: '#A970FF',
+    borderRadius: 90,
+    height: 180,
+    opacity: 0.14,
+    position: 'absolute',
+    width: 180,
+    zIndex: 0,
+  },
+  heroSpritePedestal: {
+    backgroundColor: '#7A5A2A',
+    borderRadius: 999,
+    bottom: 16,
+    height: 4,
+    opacity: 0.75,
+    position: 'absolute',
+    width: 116,
+    zIndex: 0,
   },
   heroSpriteHint: {
     color: '#A8B0C7',
@@ -2021,8 +2091,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   heroProgressCard: {
-    backgroundColor: '#242938',
-    borderColor: '#3E4661',
+    backgroundColor: '#202535',
+    borderColor: '#4B5471',
     borderRadius: 14,
     borderWidth: 1,
     marginBottom: 14,
@@ -2033,10 +2103,18 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   heroProgressTitle: {
-    color: '#A970FF',
+    color: '#D9C08A',
     fontSize: 13,
     fontWeight: '900',
-    marginBottom: 8,
+    marginBottom: 6,
+  },
+  heroPanelAccent: {
+    backgroundColor: '#7A5A2A',
+    borderRadius: 999,
+    height: 2,
+    marginBottom: 10,
+    opacity: 0.9,
+    width: 76,
   },
   heroModalTitleCompact: {
     fontSize: 22,
@@ -2081,8 +2159,8 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     color: '#F4F1DE',
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '900',
   },
   statValue: {
     color: '#A8B0C7',
@@ -2091,7 +2169,7 @@ const styles = StyleSheet.create({
   },
   statBarTrack: {
     backgroundColor: '#171923',
-    borderColor: '#3E4661',
+    borderColor: '#4B5471',
     borderRadius: 8,
     borderWidth: 1,
     height: 12,

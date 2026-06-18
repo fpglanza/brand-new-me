@@ -90,7 +90,8 @@ type KingdomStateRow = {
   legacy: number;
 };
 
-export const XP_GOAL = 100;
+const BASE_LEVEL_XP = 1000;
+const LEVEL_XP_STEP = 150;
 
 const DATABASE_NAME = 'brand-new-me.db';
 const PLAYER_ID = 'player';
@@ -537,6 +538,7 @@ function getQuestTemplatesForDate(date: string) {
 export async function openGameDatabase(today = getLocalDateString()) {
   const db = await SQLite.openDatabaseAsync(DATABASE_NAME);
   await setupDatabase(db, today);
+  await syncPlayerLevelWithCurrentCurve(db);
   return db;
 }
 
@@ -1255,12 +1257,39 @@ export async function startNewWeekInDatabase(
   });
 }
 
-export function getXpProgress(totalXp: number) {
-  return totalXp % XP_GOAL;
+export function getXpNeededForLevel(level: number) {
+  return BASE_LEVEL_XP + (Math.max(level, 1) - 1) * LEVEL_XP_STEP;
 }
 
-function getLevelForXp(totalXp: number) {
-  return Math.floor(totalXp / XP_GOAL) + 1;
+export function getXpForLevelStart(level: number) {
+  const safeLevel = Math.max(level, 1);
+  let xpTotal = 0;
+
+  for (let currentLevel = 1; currentLevel < safeLevel; currentLevel += 1) {
+    xpTotal += getXpNeededForLevel(currentLevel);
+  }
+
+  return xpTotal;
+}
+
+export function getXpProgress(totalXp: number) {
+  const safeTotalXp = Math.max(totalXp, 0);
+  const level = getLevelForXp(safeTotalXp);
+
+  return safeTotalXp - getXpForLevelStart(level);
+}
+
+export function getLevelForXp(totalXp: number) {
+  const safeTotalXp = Math.max(totalXp, 0);
+  let remainingXp = safeTotalXp;
+  let level = 1;
+
+  while (remainingXp >= getXpNeededForLevel(level)) {
+    remainingXp -= getXpNeededForLevel(level);
+    level += 1;
+  }
+
+  return level;
 }
 
 function getShadowDamage(xpReward: number) {
@@ -1441,8 +1470,39 @@ function mapPlayerRow(row: PlayerRow): Player {
   return {
     id: row.id,
     totalXp: row.total_xp,
-    level: row.level,
+    level: getLevelForXp(row.total_xp),
   };
+}
+
+async function syncPlayerLevelWithCurrentCurve(db: SQLite.SQLiteDatabase) {
+  const playerRow = await db.getFirstAsync<PlayerRow>(
+    'SELECT id, total_xp, level FROM player WHERE id = ?',
+    PLAYER_ID,
+  );
+
+  if (!playerRow) {
+    return;
+  }
+
+  const calculatedLevel = getLevelForXp(playerRow.total_xp);
+
+  if (calculatedLevel === playerRow.level) {
+    return;
+  }
+
+  await db.runAsync(
+    'UPDATE player SET level = ? WHERE id = ?',
+    calculatedLevel,
+    PLAYER_ID,
+  );
+  await db.runAsync(
+    `UPDATE hero_attributes SET
+      level_start_body = body,
+      level_start_mind = mind,
+      level_start_purpose = purpose
+    WHERE id = ?`,
+    HERO_ATTRIBUTES_ID,
+  );
 }
 
 function mapHeroAttributesRow(row: HeroAttributesRow): HeroAttributes {
