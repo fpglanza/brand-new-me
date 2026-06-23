@@ -2,15 +2,21 @@ import * as SQLite from 'expo-sqlite';
 
 import type {
   GameState,
+  EmpressChronicleJudgment,
+  EmpressChronicleSummary,
   FinalizedBattleResult,
   HeroAttributes,
   KingdomChecklistFrequency,
   KingdomChecklistItem,
+  KingdomChronicleSummary,
   KingdomDecree,
   KingdomDecreeType,
   KingdomState,
+  HeroChronicleDeed,
   Player,
   Quest,
+  QuestChronicleDayStatus,
+  QuestChronicleSummary,
   QuestSource,
   QuestTemplate,
   Shadow,
@@ -683,6 +689,189 @@ export async function getCurrentWeekFinalizedBattle(
   );
 
   return row ? mapWeeklyResultRow(row) : null;
+}
+
+export async function loadHeroChronicleDeeds(
+  db: SQLite.SQLiteDatabase,
+  dayLimit = 14,
+): Promise<HeroChronicleDeed[]> {
+  const rows = await db.getAllAsync<QuestRow>(
+    `SELECT id, template_id, date, title, category, description, xp_reward, completed, source
+    FROM quests
+    WHERE completed = 1
+      AND date IN (
+        SELECT date
+        FROM quests
+        WHERE completed = 1
+        GROUP BY date
+        ORDER BY date DESC
+        LIMIT ?
+      )
+    ORDER BY date DESC, rowid ASC`,
+    dayLimit,
+  );
+
+  return rows.map(mapQuestRow);
+}
+
+export async function loadQuestChronicleSummary(
+  db: SQLite.SQLiteDatabase,
+  today = getLocalDateString(),
+): Promise<QuestChronicleSummary> {
+  const completedRows = await db.getAllAsync<QuestRow>(
+    `SELECT id, template_id, date, title, category, description, xp_reward, completed, source
+    FROM quests
+    WHERE completed = 1
+    ORDER BY date DESC, rowid ASC`,
+  );
+  const dailyProgressRows = await db.getAllAsync<WeeklyDailyProgressRow>(
+    `SELECT
+      date,
+      SUM(CASE WHEN completed = 1 THEN xp_reward ELSE 0 END) AS daily_progress
+    FROM quests
+    WHERE completed = 1
+    GROUP BY date
+    ORDER BY date DESC`,
+  );
+  const categoryCounts = new Map<string, number>();
+
+  for (const quest of completedRows) {
+    categoryCounts.set(
+      quest.category,
+      (categoryCounts.get(quest.category) ?? 0) + 1,
+    );
+  }
+
+  const topCategory =
+    [...categoryCounts.entries()].sort((first, second) => {
+      if (second[1] !== first[1]) {
+        return second[1] - first[1];
+      }
+
+      return first[0].localeCompare(second[0]);
+    })[0]?.[0] ?? null;
+  const recentProgressByDate = new Map(
+    dailyProgressRows.map((row) => [row.date, row.daily_progress]),
+  );
+  const recentDays = getRecentDateStrings(today, 7).map((date) => {
+    const dailyProgress = recentProgressByDate.get(date) ?? 0;
+
+    return {
+      date,
+      dailyProgress,
+      status: getQuestChronicleDayStatus(dailyProgress),
+    };
+  });
+
+  return {
+    totalCompleted: completedRows.length,
+    victoryDays: dailyProgressRows.filter((row) => row.daily_progress >= 80)
+      .length,
+    strongDays: dailyProgressRows.filter(
+      (row) => row.daily_progress >= 100 && row.daily_progress < 150,
+    ).length,
+    legendaryDays: dailyProgressRows.filter(
+      (row) => row.daily_progress >= 150,
+    ).length,
+    bonusEfforts: completedRows.filter((quest) => quest.source === 'bonus')
+      .length,
+    carryoversCompleted: completedRows.filter(
+      (quest) =>
+        quest.source === 'carryover' ||
+        quest.title.endsWith(' — Carried Over'),
+    ).length,
+    topCategory,
+    recentDays,
+  };
+}
+
+export async function loadEmpressChronicleSummary(
+  db: SQLite.SQLiteDatabase,
+  recentLimit = 8,
+): Promise<EmpressChronicleSummary> {
+  const rows = await db.getAllAsync<WeeklyResultRow>(
+    `SELECT id, week_start, completion_rate, result, kingdom_favor, empress_score, created_at
+    FROM weekly_results
+    ORDER BY week_start DESC`,
+  );
+  const judgments = rows.map(mapEmpressChronicleJudgmentRow);
+  const bestWeek =
+    [...judgments].sort((first, second) => {
+      const firstScore = first.empressScore ?? -1;
+      const secondScore = second.empressScore ?? -1;
+
+      if (secondScore !== firstScore) {
+        return secondScore - firstScore;
+      }
+
+      return second.weekStart.localeCompare(first.weekStart);
+    })[0] ?? null;
+
+  return {
+    totalJudgments: judgments.length,
+    victories: judgments.filter((judgment) => judgment.result === 'Victory')
+      .length,
+    draws: judgments.filter((judgment) => judgment.result === 'Draw').length,
+    defeats: judgments.filter((judgment) => judgment.result === 'Defeat')
+      .length,
+    totalKingdomFavor: judgments.reduce(
+      (total, judgment) => total + (judgment.kingdomFavor ?? 0),
+      0,
+    ),
+    bestWeek,
+    recentJudgments: judgments.slice(0, recentLimit),
+  };
+}
+
+export async function loadKingdomChronicleSummary(
+  db: SQLite.SQLiteDatabase,
+  recentLimit = 12,
+): Promise<KingdomChronicleSummary> {
+  const kingdomStateRow = await db.getFirstAsync<KingdomStateRow>(
+    'SELECT id, prosperity, legacy FROM kingdom_state WHERE id = ?',
+    KINGDOM_STATE_ID,
+  );
+  const completedRows = await db.getAllAsync<KingdomDecreeRow>(
+    `SELECT
+      id,
+      date,
+      template_id,
+      decree_type,
+      title,
+      flavor_text,
+      prosperity_reward,
+      legacy_reward,
+      completed,
+      completed_at
+    FROM kingdom_decrees
+    WHERE completed = 1
+    ORDER BY date DESC, COALESCE(completed_at, '') DESC, rowid DESC`,
+  );
+  const completedDecrees = completedRows.map(mapKingdomDecreeRow);
+  const orderDecrees = completedDecrees.filter(
+    (decree) => decree.type === 'Order',
+  ).length;
+  const restorationDecrees = completedDecrees.filter(
+    (decree) => decree.type === 'Restoration',
+  ).length;
+  const stewardshipDecrees = completedDecrees.filter(
+    (decree) => decree.type === 'Stewardship',
+  ).length;
+
+  return {
+    prosperity: kingdomStateRow?.prosperity ?? DEFAULT_KINGDOM_STATE.prosperity,
+    legacy: kingdomStateRow?.legacy ?? DEFAULT_KINGDOM_STATE.legacy,
+    decreesFulfilled: completedDecrees.length,
+    orderDecrees,
+    restorationDecrees,
+    stewardshipDecrees,
+    mostChosenType: getMostChosenKingdomDecreeType({
+      Order: orderDecrees,
+      Restoration: restorationDecrees,
+      Stewardship: stewardshipDecrees,
+    }),
+    recentDecrees: completedDecrees.slice(0, recentLimit),
+  };
 }
 
 export async function calculateCurrentWeekBattlePreview(
@@ -1838,6 +2027,25 @@ function mapWeeklyResultRow(row: WeeklyResultRow): FinalizedBattleResult {
   };
 }
 
+function mapEmpressChronicleJudgmentRow(
+  row: WeeklyResultRow,
+): EmpressChronicleJudgment {
+  const kingdomFavor = row.kingdom_favor ?? null;
+
+  return {
+    id: row.id,
+    weekStart: row.week_start,
+    result: row.result,
+    victoryDays: Math.round(row.completion_rate * 7),
+    strongDays: null,
+    legendaryDays: null,
+    kingdomFavor,
+    empressScore:
+      row.empress_score ?? Math.round(row.completion_rate * 7) + Math.min(kingdomFavor ?? 0, 2),
+    createdAt: row.created_at,
+  };
+}
+
 function mapKingdomChecklistRow(row: KingdomChecklistRow): KingdomChecklistItem {
   return {
     id: row.id,
@@ -2438,11 +2646,60 @@ function getKingdomDecreeRewards(
   }
 }
 
+function getMostChosenKingdomDecreeType(
+  counts: Record<KingdomDecreeType, number>,
+) {
+  const entries = Object.entries(counts) as [KingdomDecreeType, number][];
+  const highestCount = Math.max(...entries.map(([, count]) => count));
+
+  if (highestCount === 0) {
+    return null;
+  }
+
+  const highestTypes = entries.filter(([, count]) => count === highestCount);
+
+  if (highestTypes.length > 1) {
+    return 'Balanced Rule';
+  }
+
+  return highestTypes[0][0];
+}
+
 function getWeekEndDateString(weekStart: string) {
   const weekEnd = parseLocalDate(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
 
   return getLocalDateString(weekEnd);
+}
+
+function getRecentDateStrings(today: string, dayCount: number) {
+  const dates: string[] = [];
+  const currentDate = parseLocalDate(today);
+
+  for (let index = 0; index < dayCount; index += 1) {
+    dates.push(getLocalDateString(currentDate));
+    currentDate.setDate(currentDate.getDate() - 1);
+  }
+
+  return dates;
+}
+
+function getQuestChronicleDayStatus(
+  dailyProgress: number,
+): QuestChronicleDayStatus {
+  if (dailyProgress >= 150) {
+    return 'Legendary';
+  }
+
+  if (dailyProgress >= 100) {
+    return 'Strong';
+  }
+
+  if (dailyProgress >= 80) {
+    return 'Victory';
+  }
+
+  return 'Missed';
 }
 
 function parseLocalDate(date: string) {

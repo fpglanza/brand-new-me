@@ -36,6 +36,53 @@ export type QuestTemplate = {
   xp: number;
 };
 
+export type HeroChronicleDeed = Quest;
+
+export type QuestChronicleDayStatus =
+  | 'Missed'
+  | 'Victory'
+  | 'Strong'
+  | 'Legendary';
+
+export type QuestChronicleRecentDay = {
+  date: string;
+  dailyProgress: number;
+  status: QuestChronicleDayStatus;
+};
+
+export type QuestChronicleSummary = {
+  totalCompleted: number;
+  victoryDays: number;
+  strongDays: number;
+  legendaryDays: number;
+  bonusEfforts: number;
+  carryoversCompleted: number;
+  topCategory: string | null;
+  recentDays: QuestChronicleRecentDay[];
+};
+
+export type EmpressChronicleJudgment = {
+  id: string;
+  weekStart: string;
+  result: WeeklyResult;
+  victoryDays: number;
+  strongDays: number | null;
+  legendaryDays: number | null;
+  kingdomFavor: number | null;
+  empressScore: number | null;
+  createdAt: string;
+};
+
+export type EmpressChronicleSummary = {
+  totalJudgments: number;
+  victories: number;
+  draws: number;
+  defeats: number;
+  totalKingdomFavor: number;
+  bestWeek: EmpressChronicleJudgment | null;
+  recentJudgments: EmpressChronicleJudgment[];
+};
+
 export type Shadow = {
   id: string;
   name: string;
@@ -108,6 +155,21 @@ export type KingdomDecree = {
   legacyReward: number;
   completed: boolean;
   completedAt: string | null;
+};
+
+export type KingdomChronicleRecord = KingdomDecree;
+
+export type KingdomChronicleRuleStyle = KingdomDecreeType | 'Balanced Rule';
+
+export type KingdomChronicleSummary = {
+  prosperity: number;
+  legacy: number;
+  decreesFulfilled: number;
+  orderDecrees: number;
+  restorationDecrees: number;
+  stewardshipDecrees: number;
+  mostChosenType: KingdomChronicleRuleStyle | null;
+  recentDecrees: KingdomChronicleRecord[];
 };
 
 export type GameState = {

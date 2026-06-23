@@ -32,6 +32,10 @@ import {
   getXpNeededForLevel,
   getXpProgress,
   getLocalDateString,
+  loadEmpressChronicleSummary,
+  loadHeroChronicleDeeds,
+  loadKingdomChronicleSummary,
+  loadQuestChronicleSummary,
   loadGameState,
   openGameDatabase,
   reseedQuestCatalogForDateInDatabase,
@@ -44,12 +48,17 @@ import {
   toggleQuestInDatabase,
 } from './src/database/db';
 import type {
+  EmpressChronicleJudgment,
+  EmpressChronicleSummary,
   FinalizedBattleResult,
   HeroAttributes,
+  HeroChronicleDeed,
+  KingdomChronicleSummary,
   KingdomDecree,
   KingdomState,
   Player,
   Quest,
+  QuestChronicleSummary,
   QuestTemplate,
   Shadow,
 } from './src/types/game';
@@ -67,6 +76,38 @@ const DEFAULT_WEEKLY_BATTLE: WeeklyBattlePreviewData = {
   kingdomFavor: 0,
   kingdomFavorCounted: 0,
   empressScore: 0,
+};
+
+const DEFAULT_QUEST_CHRONICLE_SUMMARY: QuestChronicleSummary = {
+  totalCompleted: 0,
+  victoryDays: 0,
+  strongDays: 0,
+  legendaryDays: 0,
+  bonusEfforts: 0,
+  carryoversCompleted: 0,
+  topCategory: null,
+  recentDays: [],
+};
+
+const DEFAULT_EMPRESS_CHRONICLE_SUMMARY: EmpressChronicleSummary = {
+  totalJudgments: 0,
+  victories: 0,
+  draws: 0,
+  defeats: 0,
+  totalKingdomFavor: 0,
+  bestWeek: null,
+  recentJudgments: [],
+};
+
+const DEFAULT_KINGDOM_CHRONICLE_SUMMARY: KingdomChronicleSummary = {
+  prosperity: DEFAULT_KINGDOM_STATE.prosperity,
+  legacy: DEFAULT_KINGDOM_STATE.legacy,
+  decreesFulfilled: 0,
+  orderDecrees: 0,
+  restorationDecrees: 0,
+  stewardshipDecrees: 0,
+  mostChosenType: null,
+  recentDecrees: [],
 };
 
 const QUEST_CATEGORY_ORDER = [
@@ -101,7 +142,17 @@ const KINGDOM_DECREE_CARD_GAP = 6;
 const KINGDOM_DECREE_LIST_HORIZONTAL_PADDING = 2;
 const KINGDOM_DECREE_PANEL_HORIZONTAL_PADDING = 10;
 
-type AppView = 'home' | 'quests' | 'hero' | 'shadow' | 'kingdom';
+type AppView =
+  | 'home'
+  | 'quests'
+  | 'hero'
+  | 'shadow'
+  | 'kingdom'
+  | 'chronicles'
+  | 'heroChronicle'
+  | 'questChronicle'
+  | 'empressChronicle'
+  | 'kingdomChronicle';
 
 type LevelUpEvent = {
   attributeGains: AttributeGainDisplay[];
@@ -184,6 +235,14 @@ function getHomeDateParts(date: string) {
       MONTH_LABELS[localDate.getMonth()]
     } ${localDate.getFullYear()}`,
   };
+}
+
+function getChronicleDateLabel(date: string) {
+  const localDate = parseLocalDateString(date);
+
+  return `${localDate.getDate()} ${
+    MONTH_LABELS[localDate.getMonth()]
+  } ${localDate.getFullYear()}`;
 }
 
 function getDailyProgressMessage(dailyProgress: number) {
@@ -359,6 +418,149 @@ function getKingdomDecreeGlyph(type: KingdomDecree['type']) {
   }
 }
 
+function getHeroChronicleDeedTitle(deed: HeroChronicleDeed) {
+  return deed.title.replace(' — Carried Over', '');
+}
+
+function getHeroChronicleDeedTag(deed: HeroChronicleDeed) {
+  if (deed.source === 'bonus') {
+    return 'BONUS';
+  }
+
+  if (
+    deed.source === 'carryover' ||
+    deed.title.endsWith(' — Carried Over')
+  ) {
+    return 'CARRIED OVER';
+  }
+
+  return null;
+}
+
+function groupHeroChronicleDeeds(deeds: HeroChronicleDeed[]) {
+  const groups: {
+    date: string;
+    deeds: HeroChronicleDeed[];
+  }[] = [];
+
+  for (const deed of deeds) {
+    const currentGroup = groups[groups.length - 1];
+
+    if (currentGroup?.date === deed.date) {
+      currentGroup.deeds.push(deed);
+      continue;
+    }
+
+    groups.push({
+      date: deed.date,
+      deeds: [deed],
+    });
+  }
+
+  return groups;
+}
+
+function getQuestChronicleStatusGlyph(status: string) {
+  switch (status) {
+    case 'Legendary':
+      return '✦';
+    case 'Strong':
+      return '◆';
+    case 'Victory':
+      return '✓';
+    default:
+      return '·';
+  }
+}
+
+function getQuestChronicleStatusStyle(status: string) {
+  switch (status) {
+    case 'Legendary':
+      return styles.questTrailLegendary;
+    case 'Strong':
+      return styles.questTrailStrong;
+    case 'Victory':
+      return styles.questTrailVictory;
+    default:
+      return styles.questTrailMissed;
+  }
+}
+
+function getEmpressJudgmentGlyph(result: EmpressChronicleJudgment['result']) {
+  switch (result) {
+    case 'Victory':
+      return '✦';
+    case 'Draw':
+      return '◇';
+    case 'Defeat':
+      return '☾';
+  }
+}
+
+function getEmpressJudgmentFlavor(
+  result: EmpressChronicleJudgment['result'],
+) {
+  switch (result) {
+    case 'Victory':
+      return 'The Empress was pleased.';
+    case 'Draw':
+      return 'The Empress watched in silence.';
+    case 'Defeat':
+      return 'The Empress was displeased.';
+  }
+}
+
+function getEmpressResultStyle(result: EmpressChronicleJudgment['result']) {
+  switch (result) {
+    case 'Victory':
+      return styles.empressJudgmentVictory;
+    case 'Draw':
+      return styles.empressJudgmentDraw;
+    case 'Defeat':
+      return styles.empressJudgmentDefeat;
+  }
+}
+
+function formatChronicleNumber(value: number | null) {
+  return value === null ? '—' : String(value);
+}
+
+function getKingdomChronicleTypeLabel(type: KingdomDecree['type']) {
+  switch (type) {
+    case 'Order':
+      return 'ORDER';
+    case 'Restoration':
+      return 'RESTORATION';
+    case 'Stewardship':
+      return 'STEWARDSHIP';
+  }
+}
+
+function getKingdomChronicleTypeFlavor(type: KingdomDecree['type']) {
+  switch (type) {
+    case 'Order':
+      return 'Order was restored.';
+    case 'Restoration':
+      return 'Ruins were reclaimed.';
+    case 'Stewardship':
+      return 'The realm was prepared.';
+  }
+}
+
+function getBackView(activeView: AppView): AppView {
+  switch (activeView) {
+    case 'chronicles':
+      return 'hero';
+    case 'heroChronicle':
+    case 'questChronicle':
+    case 'empressChronicle':
+    case 'kingdomChronicle':
+      return 'chronicles';
+    default:
+      return 'home';
+  }
+}
+
 export default function App() {
   const windowDimensions = useWindowDimensions();
   const initialToday = getLocalDateString();
@@ -371,6 +573,15 @@ export default function App() {
   const [quests, setQuests] = useState<Quest[]>(
     getDefaultQuestsForDate(initialToday),
   );
+  const [heroChronicleDeeds, setHeroChronicleDeeds] = useState<
+    HeroChronicleDeed[]
+  >([]);
+  const [questChronicleSummary, setQuestChronicleSummary] =
+    useState<QuestChronicleSummary>(DEFAULT_QUEST_CHRONICLE_SUMMARY);
+  const [empressChronicleSummary, setEmpressChronicleSummary] =
+    useState<EmpressChronicleSummary>(DEFAULT_EMPRESS_CHRONICLE_SUMMARY);
+  const [kingdomChronicleSummary, setKingdomChronicleSummary] =
+    useState<KingdomChronicleSummary>(DEFAULT_KINGDOM_CHRONICLE_SUMMARY);
   const [shadow, setShadow] = useState<Shadow>(DEFAULT_SHADOW);
   const [weeklyBattle, setWeeklyBattle] = useState<WeeklyBattlePreviewData>(
     DEFAULT_WEEKLY_BATTLE,
@@ -416,6 +627,13 @@ export default function App() {
       const currentDate = getLocalDateString();
       const database = await openGameDatabase(currentDate);
       const gameState = await loadGameState(database, currentDate);
+      const completedDeeds = await loadHeroChronicleDeeds(database);
+      const questSummary = await loadQuestChronicleSummary(
+        database,
+        currentDate,
+      );
+      const empressSummary = await loadEmpressChronicleSummary(database);
+      const kingdomSummary = await loadKingdomChronicleSummary(database);
 
       if (!isMounted) {
         return;
@@ -427,6 +645,10 @@ export default function App() {
       setHeroAttributes(gameState.heroAttributes);
       setToday(gameState.today);
       setQuests(gameState.quests);
+      setHeroChronicleDeeds(completedDeeds);
+      setQuestChronicleSummary(questSummary);
+      setEmpressChronicleSummary(empressSummary);
+      setKingdomChronicleSummary(kingdomSummary);
       setShadow(gameState.shadow);
       setWeeklyBattle(gameState.weeklyBattle);
       setFinalizedBattle(gameState.finalizedBattle);
@@ -678,10 +900,18 @@ export default function App() {
       const previousHeroAttributes = heroAttributes;
       await toggleQuestInDatabase(db, quest.id, today);
       const gameState = await loadGameState(db, today);
+      const completedDeeds = await loadHeroChronicleDeeds(db);
+      const questSummary = await loadQuestChronicleSummary(db, today);
+      const empressSummary = await loadEmpressChronicleSummary(db);
+      const kingdomSummary = await loadKingdomChronicleSummary(db);
       setPlayer(gameState.player);
       setHeroAttributes(gameState.heroAttributes);
       setToday(gameState.today);
       setQuests(gameState.quests);
+      setHeroChronicleDeeds(completedDeeds);
+      setQuestChronicleSummary(questSummary);
+      setEmpressChronicleSummary(empressSummary);
+      setKingdomChronicleSummary(kingdomSummary);
       setShadow(gameState.shadow);
       setWeeklyBattle(gameState.weeklyBattle);
       setFinalizedBattle(gameState.finalizedBattle);
@@ -708,10 +938,18 @@ export default function App() {
 
   const reloadState = async (database: SQLiteDatabase, currentDate: string) => {
     const gameState = await loadGameState(database, currentDate);
+    const completedDeeds = await loadHeroChronicleDeeds(database);
+    const questSummary = await loadQuestChronicleSummary(database, currentDate);
+    const empressSummary = await loadEmpressChronicleSummary(database);
+    const kingdomSummary = await loadKingdomChronicleSummary(database);
     setPlayer(gameState.player);
     setHeroAttributes(gameState.heroAttributes);
     setToday(gameState.today);
     setQuests(gameState.quests);
+    setHeroChronicleDeeds(completedDeeds);
+    setQuestChronicleSummary(questSummary);
+    setEmpressChronicleSummary(empressSummary);
+    setKingdomChronicleSummary(kingdomSummary);
     setShadow(gameState.shadow);
     setWeeklyBattle(gameState.weeklyBattle);
     setFinalizedBattle(gameState.finalizedBattle);
@@ -835,6 +1073,7 @@ export default function App() {
   const availableBonusEfforts = BONUS_EFFORT_TEMPLATES.filter(
     (questTemplate) => !todaysQuestTemplateIds.has(questTemplate.id),
   );
+  const heroChronicleGroups = groupHeroChronicleDeeds(heroChronicleDeeds);
   const completedKingdomDecree = kingdomDecrees.find(
     (decree) => decree.completed,
   );
@@ -1562,7 +1801,617 @@ export default function App() {
                 );
               })}
             </View>
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setActiveView('chronicles')}
+              style={({ pressed }) => [
+                styles.chroniclesEntryButton,
+                pressed ? styles.homeActionPressed : null,
+              ]}
+            >
+              <Text style={styles.chroniclesEntryText}>VIEW CHRONICLES</Text>
+              <Text style={styles.chroniclesEntrySubtext}>
+                Records of the path reclaimed.
+              </Text>
+            </Pressable>
           </>
+          ) : null}
+
+          {activeView === 'chronicles' ? (
+          <>
+            <View style={styles.chroniclesHeader}>
+              <View style={styles.chroniclesHeaderDivider} />
+              <Text style={styles.chroniclesTitle}>THE CHRONICLES</Text>
+              <Text style={styles.chroniclesSubtitle}>
+                Records of discipline, judgment, and restoration.
+              </Text>
+            </View>
+
+            <View style={styles.chroniclesCardList}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setActiveView('heroChronicle')}
+                style={({ pressed }) => [
+                  styles.chronicleNavCard,
+                  styles.chronicleHeroCard,
+                  pressed ? styles.homeActionPressed : null,
+                ]}
+              >
+                <Text style={[styles.chronicleGlyph, styles.chronicleHeroGlyph]}>
+                  ⚔
+                </Text>
+                <View style={styles.chronicleNavTextBlock}>
+                  <Text style={styles.chronicleNavTitle}>HERO CHRONICLE</Text>
+                  <Text style={styles.chronicleNavFlavor}>
+                    The record of who you are becoming.
+                  </Text>
+                </View>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setActiveView('questChronicle')}
+                style={({ pressed }) => [
+                  styles.chronicleNavCard,
+                  styles.chronicleQuestCard,
+                  pressed ? styles.homeActionPressed : null,
+                ]}
+              >
+                <Text style={[styles.chronicleGlyph, styles.chronicleQuestGlyph]}>
+                  ✦
+                </Text>
+                <View style={styles.chronicleNavTextBlock}>
+                  <Text style={styles.chronicleNavTitle}>QUEST CHRONICLE</Text>
+                  <Text style={styles.chronicleNavFlavor}>
+                    The path of duties completed.
+                  </Text>
+                </View>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setActiveView('empressChronicle')}
+                style={({ pressed }) => [
+                  styles.chronicleNavCard,
+                  styles.chronicleEmpressCard,
+                  pressed ? styles.homeActionPressed : null,
+                ]}
+              >
+                <Text style={[styles.chronicleGlyph, styles.chronicleEmpressGlyph]}>
+                  ☾
+                </Text>
+                <View style={styles.chronicleNavTextBlock}>
+                  <Text style={styles.chronicleNavTitle}>EMPRESS CHRONICLE</Text>
+                  <Text style={styles.chronicleNavFlavor}>
+                    The archive of weekly judgments.
+                  </Text>
+                </View>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setActiveView('kingdomChronicle')}
+                style={({ pressed }) => [
+                  styles.chronicleNavCard,
+                  styles.chronicleKingdomCard,
+                  pressed ? styles.homeActionPressed : null,
+                ]}
+              >
+                <Text style={[styles.chronicleGlyph, styles.chronicleKingdomGlyph]}>
+                  ♜
+                </Text>
+                <View style={styles.chronicleNavTextBlock}>
+                  <Text style={styles.chronicleNavTitle}>KINGDOM CHRONICLE</Text>
+                  <Text style={styles.chronicleNavFlavor}>
+                    The history of the realm restored.
+                  </Text>
+                </View>
+              </Pressable>
+            </View>
+          </>
+          ) : null}
+
+          {activeView === 'heroChronicle' ? (
+          <View style={[styles.chronicleDetailCard, styles.chronicleHeroDetail]}>
+            <Text style={styles.chronicleDetailEyebrow}>ILLUMINATED LEDGER</Text>
+            <Text style={styles.chronicleDetailTitle}>HERO CHRONICLE</Text>
+            <Text style={styles.chronicleDetailFlavor}>
+              The record of duties completed by the Hero.
+            </Text>
+            <View
+              style={[
+                styles.chronicleDetailDivider,
+                styles.chronicleHeroDivider,
+              ]}
+            />
+            <View style={styles.heroChronicleSummary}>
+              <Text style={styles.heroChronicleSummaryLabel}>
+                Deeds Recorded
+              </Text>
+              <Text style={styles.heroChronicleSummaryValue}>
+                {heroChronicleDeeds.length}
+              </Text>
+            </View>
+            {heroChronicleGroups.length > 0 ? (
+              <View style={styles.heroChronicleDayList}>
+                {heroChronicleGroups.map((group) => (
+                  <View key={group.date} style={styles.heroChronicleDayPanel}>
+                    <Text style={styles.heroChronicleDate}>
+                      {getChronicleDateLabel(group.date)}
+                    </Text>
+                    <View style={styles.heroChronicleDeedList}>
+                      {group.deeds.map((deed) => {
+                        const deedTag = getHeroChronicleDeedTag(deed);
+
+                        return (
+                          <View key={deed.id} style={styles.heroChronicleDeedRow}>
+                            <Text style={styles.heroChronicleBullet}>•</Text>
+                            <Text style={styles.heroChronicleDeedTitle}>
+                              {getHeroChronicleDeedTitle(deed)}
+                            </Text>
+                            {deedTag ? (
+                              <Text style={styles.heroChronicleDeedTag}>
+                                {deedTag}
+                              </Text>
+                            ) : null}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.heroChronicleEmptyState}>
+                <Text style={styles.heroChronicleEmptyText}>
+                  No deeds recorded yet.
+                </Text>
+              </View>
+            )}
+          </View>
+          ) : null}
+
+          {activeView === 'questChronicle' ? (
+          <View style={[styles.chronicleDetailCard, styles.chronicleQuestDetail]}>
+            <Text style={styles.chronicleDetailEyebrow}>QUEST BOARD ARCHIVE</Text>
+            <Text style={styles.chronicleDetailTitle}>QUEST CHRONICLE</Text>
+            <Text style={styles.chronicleDetailFlavor}>
+              The trail of duties completed.
+            </Text>
+            <View
+              style={[
+                styles.chronicleDetailDivider,
+                styles.chronicleQuestDivider,
+              ]}
+            />
+            {questChronicleSummary.totalCompleted > 0 ? (
+              <>
+                <View style={styles.questChroniclePrimaryGrid}>
+                  <View style={styles.questChronicleStatTile}>
+                    <Text style={styles.chronicleStatLabel}>Completed</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {questChronicleSummary.totalCompleted}
+                    </Text>
+                  </View>
+                  <View style={styles.questChronicleStatTile}>
+                    <Text style={styles.chronicleStatLabel}>Victory</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {questChronicleSummary.victoryDays}
+                    </Text>
+                  </View>
+                  <View style={styles.questChronicleStatTile}>
+                    <Text style={styles.chronicleStatLabel}>Strong</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {questChronicleSummary.strongDays}
+                    </Text>
+                  </View>
+                  <View style={styles.questChronicleStatTile}>
+                    <Text style={styles.chronicleStatLabel}>Legendary</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {questChronicleSummary.legendaryDays}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.questChronicleSecondaryGrid}>
+                  <View
+                    style={[
+                      styles.chronicleStatCard,
+                      styles.questArchiveStatCard,
+                    ]}
+                  >
+                    <Text style={styles.chronicleStatLabel}>Bonus</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {questChronicleSummary.bonusEfforts}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.chronicleStatCard,
+                      styles.questArchiveStatCard,
+                    ]}
+                  >
+                    <Text style={styles.chronicleStatLabel}>Carryovers</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {questChronicleSummary.carryoversCompleted}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.chronicleStatCard,
+                      styles.questArchiveStatCard,
+                    ]}
+                  >
+                    <Text style={styles.chronicleStatLabel}>Top Category</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {questChronicleSummary.topCategory ?? 'None'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.questTrailPanel}>
+                  <Text style={styles.questTrailTitle}>RECENT 7 DAYS</Text>
+                  <View style={styles.questTrailList}>
+                    {questChronicleSummary.recentDays.map((day) => (
+                      <View key={day.date} style={styles.questTrailDay}>
+                        <View
+                          style={[
+                            styles.questTrailMarker,
+                            getQuestChronicleStatusStyle(day.status),
+                          ]}
+                        >
+                          <Text style={styles.questTrailMarkerText}>
+                            {getQuestChronicleStatusGlyph(day.status)}
+                          </Text>
+                        </View>
+                        <Text style={styles.questTrailDate}>
+                          {getChronicleDateLabel(day.date)}
+                        </Text>
+                        <Text style={styles.questTrailStatus}>{day.status}</Text>
+                        <Text style={styles.questTrailProgress}>
+                          {day.dailyProgress}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </>
+            ) : (
+              <View style={styles.heroChronicleEmptyState}>
+                <Text style={styles.heroChronicleEmptyText}>
+                  No quest records yet.
+                </Text>
+              </View>
+            )}
+          </View>
+          ) : null}
+
+          {activeView === 'empressChronicle' ? (
+          <View style={[styles.chronicleDetailCard, styles.chronicleEmpressDetail]}>
+            <Text style={styles.chronicleDetailEyebrow}>DARK COURT ARCHIVE</Text>
+            <Text style={styles.chronicleDetailTitle}>EMPRESS CHRONICLE</Text>
+            <Text style={styles.chronicleDetailFlavor}>
+              The sealed record of weekly judgment.
+            </Text>
+            <View
+              style={[
+                styles.chronicleDetailDivider,
+                styles.chronicleEmpressDivider,
+              ]}
+            />
+            {empressChronicleSummary.totalJudgments > 0 ? (
+              <>
+                <View style={styles.empressChroniclePrimaryGrid}>
+                  <View style={styles.empressChronicleStatTile}>
+                    <Text style={styles.chronicleStatLabel}>Judgments</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {empressChronicleSummary.totalJudgments}
+                    </Text>
+                  </View>
+                  <View style={styles.empressChronicleStatTile}>
+                    <Text style={styles.chronicleStatLabel}>Victories</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {empressChronicleSummary.victories}
+                    </Text>
+                  </View>
+                  <View style={styles.empressChronicleStatTile}>
+                    <Text style={styles.chronicleStatLabel}>Draws</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {empressChronicleSummary.draws}
+                    </Text>
+                  </View>
+                  <View style={styles.empressChronicleStatTile}>
+                    <Text style={styles.chronicleStatLabel}>Defeats</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {empressChronicleSummary.defeats}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.empressChronicleSecondaryGrid}>
+                  <View
+                    style={[
+                      styles.chronicleStatCard,
+                      styles.empressArchiveStatCard,
+                    ]}
+                  >
+                    <Text style={styles.chronicleStatLabel}>Total Favor</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      +{empressChronicleSummary.totalKingdomFavor}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.chronicleStatCard,
+                      styles.empressArchiveStatCard,
+                    ]}
+                  >
+                    <Text style={styles.chronicleStatLabel}>Best Score</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {formatChronicleNumber(
+                        empressChronicleSummary.bestWeek?.empressScore ?? null,
+                      )}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.chronicleStatCard,
+                      styles.empressArchiveStatCard,
+                    ]}
+                  >
+                    <Text style={styles.chronicleStatLabel}>Best Week</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {empressChronicleSummary.bestWeek
+                        ? `Week of ${empressChronicleSummary.bestWeek.weekStart}`
+                        : '—'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.empressJudgmentList}>
+                  <Text style={styles.empressJudgmentListTitle}>
+                    RECENT JUDGMENTS
+                  </Text>
+                  {empressChronicleSummary.recentJudgments.map((judgment) => (
+                    <View key={judgment.id} style={styles.empressJudgmentCard}>
+                      <View style={styles.empressJudgmentHeader}>
+                        <View
+                          style={[
+                            styles.empressJudgmentGlyph,
+                            getEmpressResultStyle(judgment.result),
+                          ]}
+                        >
+                          <Text style={styles.empressJudgmentGlyphText}>
+                            {getEmpressJudgmentGlyph(judgment.result)}
+                          </Text>
+                        </View>
+                        <View style={styles.empressJudgmentHeaderText}>
+                          <Text style={styles.empressJudgmentWeek}>
+                            Week of {judgment.weekStart}
+                          </Text>
+                          <Text style={styles.empressJudgmentFlavor}>
+                            {getEmpressJudgmentFlavor(judgment.result)}
+                          </Text>
+                        </View>
+                        <Text
+                          style={[
+                            styles.empressJudgmentResult,
+                            getEmpressResultStyle(judgment.result),
+                          ]}
+                        >
+                          {judgment.result}
+                        </Text>
+                      </View>
+
+                      <View style={styles.empressJudgmentMetricGrid}>
+                        <View style={styles.empressJudgmentMetric}>
+                          <Text style={styles.empressJudgmentMetricLabel}>
+                            Victory
+                          </Text>
+                          <Text style={styles.empressJudgmentMetricValue}>
+                            {judgment.victoryDays} / 7
+                          </Text>
+                        </View>
+                        <View style={styles.empressJudgmentMetric}>
+                          <Text style={styles.empressJudgmentMetricLabel}>
+                            Favor
+                          </Text>
+                          <Text style={styles.empressJudgmentMetricValue}>
+                            +{formatChronicleNumber(judgment.kingdomFavor)}
+                          </Text>
+                        </View>
+                        <View style={styles.empressJudgmentMetric}>
+                          <Text style={styles.empressJudgmentMetricLabel}>
+                            Score
+                          </Text>
+                          <Text style={styles.empressJudgmentMetricValue}>
+                            {formatChronicleNumber(judgment.empressScore)}
+                          </Text>
+                        </View>
+                        <View style={styles.empressJudgmentMetric}>
+                          <Text style={styles.empressJudgmentMetricLabel}>
+                            Strong
+                          </Text>
+                          <Text style={styles.empressJudgmentMetricValue}>
+                            {formatChronicleNumber(judgment.strongDays)}
+                          </Text>
+                        </View>
+                        <View style={styles.empressJudgmentMetric}>
+                          <Text style={styles.empressJudgmentMetricLabel}>
+                            Legendary
+                          </Text>
+                          <Text style={styles.empressJudgmentMetricValue}>
+                            {formatChronicleNumber(judgment.legendaryDays)}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </>
+            ) : (
+              <View style={styles.heroChronicleEmptyState}>
+                <Text style={styles.heroChronicleEmptyText}>
+                  No judgments recorded yet.
+                </Text>
+                <Text style={styles.empressChronicleEmptyFlavor}>
+                  The Empress has not yet sealed a week into the archive.
+                </Text>
+              </View>
+            )}
+          </View>
+          ) : null}
+
+          {activeView === 'kingdomChronicle' ? (
+          <View style={[styles.chronicleDetailCard, styles.chronicleKingdomDetail]}>
+            <Text style={styles.chronicleDetailEyebrow}>ROYAL REALM ARCHIVE</Text>
+            <Text style={styles.chronicleDetailTitle}>KINGDOM CHRONICLE</Text>
+            <Text style={styles.chronicleDetailFlavor}>
+              The record of the realm restored.
+            </Text>
+            <View
+              style={[
+                styles.chronicleDetailDivider,
+                styles.chronicleKingdomDivider,
+              ]}
+            />
+            <View style={styles.kingdomChroniclePrimaryGrid}>
+              <View style={styles.kingdomChronicleStatTile}>
+                <Text style={styles.chronicleStatLabel}>Prosperity</Text>
+                <Text style={styles.chronicleStatValue}>
+                  {kingdomChronicleSummary.prosperity}
+                </Text>
+              </View>
+              <View style={styles.kingdomChronicleStatTile}>
+                <Text style={styles.chronicleStatLabel}>Legacy</Text>
+                <Text style={styles.chronicleStatValue}>
+                  {kingdomChronicleSummary.legacy}
+                </Text>
+              </View>
+              <View style={styles.kingdomChronicleStatTile}>
+                <Text style={styles.chronicleStatLabel}>Decrees</Text>
+                <Text style={styles.chronicleStatValue}>
+                  {kingdomChronicleSummary.decreesFulfilled}
+                </Text>
+              </View>
+            </View>
+
+            {kingdomChronicleSummary.decreesFulfilled > 0 ? (
+              <>
+                <View style={styles.kingdomChronicleSecondaryGrid}>
+                  <View
+                    style={[
+                      styles.chronicleStatCard,
+                      styles.kingdomArchiveStatCard,
+                    ]}
+                  >
+                    <Text style={styles.chronicleStatLabel}>Order</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {kingdomChronicleSummary.orderDecrees}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.chronicleStatCard,
+                      styles.kingdomArchiveStatCard,
+                    ]}
+                  >
+                    <Text style={styles.chronicleStatLabel}>Restoration</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {kingdomChronicleSummary.restorationDecrees}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.chronicleStatCard,
+                      styles.kingdomArchiveStatCard,
+                    ]}
+                  >
+                    <Text style={styles.chronicleStatLabel}>Stewardship</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {kingdomChronicleSummary.stewardshipDecrees}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.chronicleStatCard,
+                      styles.kingdomArchiveStatCard,
+                    ]}
+                  >
+                    <Text style={styles.chronicleStatLabel}>Rule Style</Text>
+                    <Text style={styles.chronicleStatValue}>
+                      {kingdomChronicleSummary.mostChosenType ?? '—'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.kingdomRecordList}>
+                  <Text style={styles.kingdomRecordListTitle}>
+                    RECENT DECREES
+                  </Text>
+                  {kingdomChronicleSummary.recentDecrees.map((decree) => (
+                    <View key={decree.id} style={styles.kingdomRecordCard}>
+                      <View style={styles.kingdomRecordHeader}>
+                        <View style={styles.kingdomRecordGlyph}>
+                          <Text style={styles.kingdomRecordGlyphText}>
+                            {getKingdomDecreeGlyph(decree.type)}
+                          </Text>
+                        </View>
+                        <View style={styles.kingdomRecordHeaderText}>
+                          <Text style={styles.kingdomRecordDate}>
+                            {getChronicleDateLabel(decree.date)}
+                          </Text>
+                          <Text style={styles.kingdomRecordFlavor}>
+                            {getKingdomChronicleTypeFlavor(decree.type)}
+                          </Text>
+                        </View>
+                        <Text style={styles.kingdomRecordType}>
+                          {getKingdomChronicleTypeLabel(decree.type)}
+                        </Text>
+                      </View>
+
+                      <Text style={styles.kingdomRecordTask}>{decree.title}</Text>
+
+                      <View style={styles.kingdomRecordMetricGrid}>
+                        <View style={styles.kingdomRecordMetric}>
+                          <Text style={styles.kingdomRecordMetricLabel}>
+                            Prosperity
+                          </Text>
+                          <Text style={styles.kingdomRecordMetricValue}>
+                            +{decree.prosperityReward}
+                          </Text>
+                        </View>
+                        <View style={styles.kingdomRecordMetric}>
+                          <Text style={styles.kingdomRecordMetricLabel}>
+                            Legacy
+                          </Text>
+                          <Text style={styles.kingdomRecordMetricValue}>
+                            +{decree.legacyReward}
+                          </Text>
+                        </View>
+                        <View style={styles.kingdomRecordMetric}>
+                          <Text style={styles.kingdomRecordMetricLabel}>
+                            Favor
+                          </Text>
+                          <Text style={styles.kingdomRecordMetricValue}>+1</Text>
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </>
+            ) : (
+              <View style={styles.heroChronicleEmptyState}>
+                <Text style={styles.heroChronicleEmptyText}>
+                  No decrees fulfilled yet.
+                </Text>
+                <Text style={styles.kingdomChronicleEmptyFlavor}>
+                  The realm awaits its first restoration.
+                </Text>
+              </View>
+            )}
+          </View>
           ) : null}
 
           {activeView === 'shadow' ? (
@@ -1586,7 +2435,7 @@ export default function App() {
       </ScrollView>
 
       {activeView !== 'home' ? (
-        <FloatingBackButton onPress={() => setActiveView('home')} />
+        <FloatingBackButton onPress={() => setActiveView(getBackView(activeView))} />
       ) : null}
 
       {xpToastAmount ? (
@@ -2080,6 +2929,708 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     textAlign: 'right',
+  },
+  chroniclesEntryButton: {
+    alignItems: 'center',
+    backgroundColor: '#1B1726',
+    borderBottomColor: '#4E3477',
+    borderBottomWidth: 4,
+    borderColor: '#A970FF',
+    borderLeftColor: '#4B5471',
+    borderRadius: 12,
+    borderRightColor: '#4B5471',
+    borderTopColor: '#C8A3FF',
+    borderWidth: 1,
+    marginBottom: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  chroniclesEntryText: {
+    color: '#F4F1DE',
+    fontSize: 15,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  chroniclesEntrySubtext: {
+    color: '#D9C08A',
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  chroniclesHeader: {
+    alignItems: 'center',
+    backgroundColor: '#17151F',
+    borderColor: '#6B5873',
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 14,
+    paddingHorizontal: 14,
+    paddingTop: 13,
+    paddingBottom: 12,
+  },
+  chroniclesHeaderDivider: {
+    backgroundColor: '#D9C08A',
+    borderRadius: 999,
+    height: 2,
+    marginBottom: 10,
+    width: 92,
+  },
+  chroniclesTitle: {
+    color: '#F4F1DE',
+    fontSize: 23,
+    fontWeight: '900',
+    marginBottom: 5,
+    textAlign: 'center',
+  },
+  chroniclesSubtitle: {
+    color: '#A8B0C7',
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  chroniclesCardList: {
+    gap: 9,
+  },
+  chronicleNavCard: {
+    alignItems: 'center',
+    backgroundColor: '#1A1D29',
+    borderColor: '#4B5471',
+    borderRadius: 9,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 11,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  chronicleHeroCard: {
+    backgroundColor: '#211E19',
+    borderColor: '#7B6438',
+    borderLeftColor: '#F6C453',
+    borderLeftWidth: 4,
+  },
+  chronicleQuestCard: {
+    backgroundColor: '#1D211C',
+    borderColor: '#5C5637',
+    borderLeftColor: '#D9A24C',
+    borderLeftWidth: 4,
+  },
+  chronicleEmpressCard: {
+    backgroundColor: '#1A1320',
+    borderColor: '#65406D',
+    borderLeftColor: '#B26C8B',
+    borderLeftWidth: 4,
+  },
+  chronicleKingdomCard: {
+    backgroundColor: '#17211D',
+    borderColor: '#587155',
+    borderLeftColor: '#D9C08A',
+    borderLeftWidth: 4,
+  },
+  chronicleGlyph: {
+    fontSize: 25,
+    fontWeight: '900',
+    textAlign: 'center',
+    width: 32,
+  },
+  chronicleHeroGlyph: {
+    color: '#F6C453',
+  },
+  chronicleQuestGlyph: {
+    color: '#D9A24C',
+  },
+  chronicleEmpressGlyph: {
+    color: '#D888A2',
+  },
+  chronicleKingdomGlyph: {
+    color: '#C8D58D',
+  },
+  chronicleNavTextBlock: {
+    flex: 1,
+  },
+  chronicleNavTitle: {
+    color: '#F4F1DE',
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  chronicleNavFlavor: {
+    color: '#A8B0C7',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+  chronicleDetailCard: {
+    alignItems: 'stretch',
+    backgroundColor: '#1A1D29',
+    borderColor: '#4B5471',
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 18,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 15,
+  },
+  chronicleHeroDetail: {
+    backgroundColor: '#1E1B18',
+    borderColor: '#6E5833',
+    borderTopColor: '#F6C453',
+    borderTopWidth: 3,
+  },
+  chronicleQuestDetail: {
+    backgroundColor: '#1C1F1A',
+    borderColor: '#5A4B38',
+    borderTopColor: '#D9A24C',
+    borderTopWidth: 3,
+  },
+  chronicleEmpressDetail: {
+    backgroundColor: '#19121F',
+    borderColor: '#5E3A67',
+    borderTopColor: '#B26C8B',
+    borderTopWidth: 3,
+  },
+  chronicleKingdomDetail: {
+    backgroundColor: '#151F1B',
+    borderColor: '#526D4C',
+    borderTopColor: '#D9C08A',
+    borderTopWidth: 3,
+  },
+  chronicleDetailEyebrow: {
+    color: '#D9C08A',
+    fontSize: 11,
+    fontWeight: '900',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  chronicleDetailTitle: {
+    color: '#F4F1DE',
+    fontSize: 22,
+    fontWeight: '900',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  chronicleDetailFlavor: {
+    color: '#A8B0C7',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginBottom: 9,
+    textAlign: 'center',
+  },
+  chronicleDetailDivider: {
+    alignSelf: 'center',
+    borderRadius: 999,
+    height: 2,
+    marginBottom: 12,
+    width: 96,
+  },
+  chronicleHeroDivider: {
+    backgroundColor: '#F6C453',
+  },
+  chronicleQuestDivider: {
+    backgroundColor: '#D9A24C',
+  },
+  chronicleEmpressDivider: {
+    backgroundColor: '#B26C8B',
+  },
+  chronicleKingdomDivider: {
+    backgroundColor: '#C8D58D',
+  },
+  chronicleStatGrid: {
+    gap: 8,
+  },
+  chronicleStatCard: {
+    backgroundColor: 'rgba(244, 241, 222, 0.035)',
+    borderColor: 'rgba(217, 192, 138, 0.14)',
+    borderRadius: 8,
+    borderTopWidth: 1,
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+  },
+  chronicleStatLabel: {
+    color: '#A8B0C7',
+    fontSize: 9,
+    fontWeight: '900',
+    includeFontPadding: false,
+    lineHeight: 11,
+    marginBottom: 5,
+    textTransform: 'uppercase',
+  },
+  chronicleStatValue: {
+    color: '#F4F1DE',
+    fontSize: 16,
+    fontWeight: '900',
+    lineHeight: 19,
+  },
+  questChroniclePrimaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  questChronicleStatTile: {
+    backgroundColor: 'rgba(217, 162, 76, 0.09)',
+    borderColor: 'rgba(217, 162, 76, 0.24)',
+    borderRadius: 8,
+    borderTopWidth: 1,
+    flexBasis: '48%',
+    flexGrow: 1,
+    minWidth: 120,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  questChronicleSecondaryGrid: {
+    gap: 8,
+    marginBottom: 10,
+  },
+  questArchiveStatCard: {
+    backgroundColor: 'rgba(217, 162, 76, 0.055)',
+    borderColor: 'rgba(217, 162, 76, 0.16)',
+  },
+  questTrailPanel: {
+    backgroundColor: 'rgba(23, 26, 22, 0.78)',
+    borderColor: 'rgba(217, 162, 76, 0.18)',
+    borderRadius: 9,
+    borderTopWidth: 1,
+    overflow: 'hidden',
+  },
+  questTrailTitle: {
+    backgroundColor: 'rgba(217, 162, 76, 0.08)',
+    borderBottomColor: 'rgba(217, 162, 76, 0.18)',
+    borderBottomWidth: 1,
+    color: '#D9C08A',
+    fontSize: 12,
+    fontWeight: '900',
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+  },
+  questTrailList: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  questTrailDay: {
+    alignItems: 'center',
+    borderBottomColor: 'rgba(217, 162, 76, 0.1)',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 6,
+  },
+  questTrailMarker: {
+    alignItems: 'center',
+    borderRadius: 999,
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
+  },
+  questTrailMissed: {
+    backgroundColor: '#2C3040',
+    borderColor: '#4B5471',
+    borderWidth: 1,
+  },
+  questTrailVictory: {
+    backgroundColor: '#214734',
+    borderColor: '#55D187',
+    borderWidth: 1,
+  },
+  questTrailStrong: {
+    backgroundColor: '#41371F',
+    borderColor: '#F6C453',
+    borderWidth: 1,
+  },
+  questTrailLegendary: {
+    backgroundColor: '#2A1F40',
+    borderColor: '#A970FF',
+    borderWidth: 1,
+  },
+  questTrailMarkerText: {
+    color: '#F4F1DE',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  questTrailDate: {
+    color: '#F4F1DE',
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  questTrailStatus: {
+    color: '#A8B0C7',
+    fontSize: 11,
+    fontWeight: '900',
+    minWidth: 62,
+    textAlign: 'right',
+  },
+  questTrailProgress: {
+    color: '#D9C08A',
+    fontSize: 11,
+    fontWeight: '900',
+    minWidth: 28,
+    textAlign: 'right',
+  },
+  empressChroniclePrimaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  empressChronicleStatTile: {
+    backgroundColor: 'rgba(178, 108, 139, 0.1)',
+    borderColor: 'rgba(178, 108, 139, 0.24)',
+    borderRadius: 8,
+    borderTopWidth: 1,
+    flexBasis: '48%',
+    flexGrow: 1,
+    minWidth: 120,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  empressChronicleSecondaryGrid: {
+    gap: 8,
+    marginBottom: 10,
+  },
+  empressArchiveStatCard: {
+    backgroundColor: 'rgba(178, 108, 139, 0.055)',
+    borderColor: 'rgba(178, 108, 139, 0.16)',
+  },
+  empressJudgmentList: {
+    gap: 9,
+  },
+  empressJudgmentListTitle: {
+    color: '#D888A2',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 1,
+  },
+  empressJudgmentCard: {
+    backgroundColor: '#160F1C',
+    borderColor: '#5E3A67',
+    borderRadius: 9,
+    borderTopWidth: 1,
+    overflow: 'hidden',
+    padding: 10,
+  },
+  empressJudgmentHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 9,
+    marginBottom: 9,
+  },
+  empressJudgmentGlyph: {
+    alignItems: 'center',
+    borderRadius: 999,
+    height: 30,
+    justifyContent: 'center',
+    width: 30,
+  },
+  empressJudgmentGlyphText: {
+    color: '#F4F1DE',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  empressJudgmentHeaderText: {
+    flex: 1,
+  },
+  empressJudgmentWeek: {
+    color: '#F4F1DE',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  empressJudgmentFlavor: {
+    color: '#A8B0C7',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  empressJudgmentResult: {
+    borderRadius: 999,
+    color: '#F4F1DE',
+    fontSize: 10,
+    fontWeight: '900',
+    overflow: 'hidden',
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  empressJudgmentVictory: {
+    backgroundColor: '#41371F',
+    borderColor: '#F6C453',
+    borderWidth: 1,
+  },
+  empressJudgmentDraw: {
+    backgroundColor: '#2A2436',
+    borderColor: '#A970FF',
+    borderWidth: 1,
+  },
+  empressJudgmentDefeat: {
+    backgroundColor: '#2C2330',
+    borderColor: '#7C4C68',
+    borderWidth: 1,
+  },
+  empressJudgmentMetricGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7,
+  },
+  empressJudgmentMetric: {
+    backgroundColor: 'rgba(244, 241, 222, 0.035)',
+    borderColor: 'rgba(178, 108, 139, 0.14)',
+    borderRadius: 7,
+    borderTopWidth: 1,
+    flexBasis: '48%',
+    flexGrow: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 7,
+  },
+  empressJudgmentMetricLabel: {
+    color: '#A8B0C7',
+    fontSize: 8,
+    fontWeight: '900',
+    includeFontPadding: false,
+    lineHeight: 10,
+    marginBottom: 3,
+    textTransform: 'uppercase',
+  },
+  empressJudgmentMetricValue: {
+    color: '#F4F1DE',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  empressChronicleEmptyFlavor: {
+    color: '#7F879D',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  kingdomChroniclePrimaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  kingdomChronicleStatTile: {
+    backgroundColor: 'rgba(200, 213, 141, 0.08)',
+    borderColor: 'rgba(200, 213, 141, 0.22)',
+    borderRadius: 8,
+    borderTopWidth: 1,
+    flexBasis: '48%',
+    flexGrow: 1,
+    minWidth: 120,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  kingdomChronicleSecondaryGrid: {
+    gap: 8,
+    marginBottom: 10,
+  },
+  kingdomArchiveStatCard: {
+    backgroundColor: 'rgba(200, 213, 141, 0.045)',
+    borderColor: 'rgba(200, 213, 141, 0.14)',
+  },
+  kingdomRecordList: {
+    gap: 9,
+  },
+  kingdomRecordListTitle: {
+    color: '#C8D58D',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 1,
+  },
+  kingdomRecordCard: {
+    backgroundColor: '#121D19',
+    borderColor: '#526D4C',
+    borderRadius: 9,
+    borderTopWidth: 1,
+    padding: 10,
+  },
+  kingdomRecordHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 9,
+    marginBottom: 8,
+  },
+  kingdomRecordGlyph: {
+    alignItems: 'center',
+    backgroundColor: '#263725',
+    borderColor: '#D9C08A',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 30,
+    justifyContent: 'center',
+    width: 30,
+  },
+  kingdomRecordGlyphText: {
+    color: '#F6C453',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  kingdomRecordHeaderText: {
+    flex: 1,
+  },
+  kingdomRecordDate: {
+    color: '#F4F1DE',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  kingdomRecordFlavor: {
+    color: '#A8B0C7',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  kingdomRecordType: {
+    backgroundColor: '#2A2B1F',
+    borderColor: '#D9C08A',
+    borderRadius: 999,
+    borderWidth: 1,
+    color: '#F4F1DE',
+    fontSize: 9,
+    fontWeight: '900',
+    overflow: 'hidden',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  kingdomRecordTask: {
+    color: '#F4F1DE',
+    fontSize: 13,
+    fontWeight: '900',
+    lineHeight: 17,
+    marginBottom: 8,
+  },
+  kingdomRecordMetricGrid: {
+    flexDirection: 'row',
+    gap: 7,
+  },
+  kingdomRecordMetric: {
+    backgroundColor: 'rgba(244, 241, 222, 0.035)',
+    borderColor: 'rgba(200, 213, 141, 0.14)',
+    borderRadius: 7,
+    borderTopWidth: 1,
+    flex: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 7,
+  },
+  kingdomRecordMetricLabel: {
+    color: '#A8B0C7',
+    fontSize: 8,
+    fontWeight: '900',
+    includeFontPadding: false,
+    lineHeight: 10,
+    marginBottom: 3,
+    textTransform: 'uppercase',
+  },
+  kingdomRecordMetricValue: {
+    color: '#D9C08A',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  kingdomChronicleEmptyFlavor: {
+    color: '#7F879D',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  heroChronicleSummary: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(246, 196, 83, 0.08)',
+    borderColor: 'rgba(246, 196, 83, 0.22)',
+    borderRadius: 8,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+  },
+  heroChronicleSummaryLabel: {
+    color: '#A8B0C7',
+    fontSize: 9,
+    fontWeight: '900',
+    includeFontPadding: false,
+    lineHeight: 11,
+    textTransform: 'uppercase',
+  },
+  heroChronicleSummaryValue: {
+    color: '#F6C453',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  heroChronicleDayList: {
+    gap: 10,
+  },
+  heroChronicleDayPanel: {
+    backgroundColor: '#171815',
+    borderColor: '#5A4B38',
+    borderRadius: 9,
+    borderTopWidth: 1,
+    overflow: 'hidden',
+  },
+  heroChronicleDate: {
+    backgroundColor: 'rgba(246, 196, 83, 0.055)',
+    borderBottomColor: 'rgba(246, 196, 83, 0.14)',
+    borderBottomWidth: 1,
+    color: '#D9C08A',
+    fontSize: 12,
+    fontWeight: '900',
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    textTransform: 'uppercase',
+  },
+  heroChronicleDeedList: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  heroChronicleDeedRow: {
+    alignItems: 'center',
+    borderBottomColor: 'rgba(246, 196, 83, 0.1)',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: 7,
+    paddingVertical: 5,
+  },
+  heroChronicleBullet: {
+    color: '#F6C453',
+    fontSize: 13,
+    fontWeight: '900',
+    width: 10,
+  },
+  heroChronicleDeedTitle: {
+    color: '#F4F1DE',
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 17,
+  },
+  heroChronicleDeedTag: {
+    backgroundColor: '#2A2436',
+    borderColor: '#5A4B72',
+    borderRadius: 999,
+    borderWidth: 1,
+    color: '#D9C08A',
+    fontSize: 8,
+    fontWeight: '900',
+    overflow: 'hidden',
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+  },
+  heroChronicleEmptyState: {
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    borderColor: 'rgba(217, 192, 138, 0.18)',
+    borderRadius: 8,
+    borderTopWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 18,
+  },
+  heroChronicleEmptyText: {
+    color: '#A8B0C7',
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   homeActions: {
     gap: 12,
