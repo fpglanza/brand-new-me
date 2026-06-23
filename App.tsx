@@ -97,6 +97,9 @@ const LEVEL_UP_OVERLAY_DURATION_MS = 2600;
 const PAGE_TRANSITION_DURATION_MS = 180;
 const PAGE_TRANSITION_START_OPACITY = 0.86;
 const PAGE_TRANSITION_START_TRANSLATE_Y = 6;
+const KINGDOM_DECREE_CARD_GAP = 6;
+const KINGDOM_DECREE_LIST_HORIZONTAL_PADDING = 2;
+const KINGDOM_DECREE_PANEL_HORIZONTAL_PADDING = 10;
 
 type AppView = 'home' | 'quests' | 'hero' | 'shadow' | 'kingdom';
 
@@ -333,16 +336,27 @@ function getKingdomStateLabel(prosperity: number) {
 function getKingdomDecreeTypeLabel(type: KingdomDecree['type']) {
   switch (type) {
     case 'Order':
-      return 'ORDER DECREE';
+      return 'ORDER';
     case 'Restoration':
-      return 'RESTORATION DECREE';
+      return 'RESTORE';
     case 'Stewardship':
-      return 'STEWARDSHIP DECREE';
+      return 'STEWARD';
   }
 }
 
 function getKingdomDecreeRewardText(decree: KingdomDecree) {
-  return `+${decree.prosperityReward} Prosperity · +${decree.legacyReward} Legacy · +1 Favor`;
+  return `+${decree.prosperityReward} Prosperity · +${decree.legacyReward} Legacy`;
+}
+
+function getKingdomDecreeGlyph(type: KingdomDecree['type']) {
+  switch (type) {
+    case 'Order':
+      return '⚖';
+    case 'Restoration':
+      return '✦';
+    case 'Stewardship':
+      return '♜';
+  }
 }
 
 export default function App() {
@@ -845,6 +859,17 @@ export default function App() {
   const shouldUseCompactPageSpacing =
     isCompactMobile &&
     (activeView === 'home' || activeView === 'hero' || activeView === 'shadow');
+  const kingdomPageHorizontalPadding = 40;
+  const kingdomDecreeAvailableWidth =
+    windowDimensions.width -
+    kingdomPageHorizontalPadding -
+    KINGDOM_DECREE_PANEL_HORIZONTAL_PADDING * 2 -
+    KINGDOM_DECREE_CARD_GAP * 2 -
+    KINGDOM_DECREE_LIST_HORIZONTAL_PADDING * 2;
+  const kingdomDecreeCardWidth = Math.min(
+    isCompactMobile ? 104 : 154,
+    Math.max(78, kingdomDecreeAvailableWidth / 3),
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -1294,6 +1319,94 @@ export default function App() {
                 </Text>
               </View>
 
+              <View style={styles.kingdomDecreesPanel}>
+                <View style={styles.kingdomDecreesSeal} />
+                <Text style={styles.kingdomDecreesTitle}>KINGDOM DECREES</Text>
+                <Text style={styles.kingdomDecreesSubtitle}>
+                  Choose one duty to restore the realm today.
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.kingdomDecreeList}
+                >
+                  {kingdomDecrees.map((decree) => {
+                    const isDisabled =
+                      Boolean(completedKingdomDecree) && !decree.completed;
+
+                    return (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{
+                          checked: decree.completed,
+                          disabled: isDisabled,
+                        }}
+                        disabled={isDisabled}
+                        key={decree.id}
+                        onPress={() => toggleKingdomDecree(decree)}
+                        style={({ pressed }) => [
+                          styles.kingdomDecreeCard,
+                          { width: kingdomDecreeCardWidth },
+                          decree.completed
+                            ? styles.kingdomDecreeCardCompleted
+                            : null,
+                          isDisabled ? styles.kingdomDecreeCardDisabled : null,
+                          pressed ? styles.homeActionPressed : null,
+                        ]}
+                      >
+                        <Text style={styles.kingdomDecreeGlyph}>
+                          {getKingdomDecreeGlyph(decree.type)}
+                        </Text>
+                        <Text style={styles.kingdomDecreeType}>
+                          {getKingdomDecreeTypeLabel(decree.type)}
+                        </Text>
+                        <Text
+                          numberOfLines={2}
+                          style={styles.kingdomDecreeTask}
+                        >
+                          {decree.title.toUpperCase()}
+                        </Text>
+                        <Text
+                          numberOfLines={2}
+                          style={styles.kingdomDecreeReward}
+                        >
+                          {getKingdomDecreeRewardText(decree)}
+                        </Text>
+                        <View
+                          style={[
+                            styles.kingdomDecreeStatePill,
+                            decree.completed
+                              ? styles.kingdomDecreeStatePillCompleted
+                              : null,
+                            isDisabled
+                              ? styles.kingdomDecreeStatePillDisabled
+                              : null,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.kingdomDecreeState,
+                              decree.completed
+                                ? styles.kingdomDecreeStateCompleted
+                                : null,
+                            ]}
+                          >
+                            {decree.completed
+                              ? 'FULFILLED'
+                              : isDisabled
+                                ? 'SEALED'
+                                : 'AVAILABLE'}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+                <Text style={styles.kingdomDecreesFootnote}>
+                  The Empress favors a ruler who keeps his realm intact.
+                </Text>
+              </View>
+
               <View style={styles.kingdomCard}>
                 <Image
                   resizeMode="cover"
@@ -1332,98 +1445,6 @@ export default function App() {
                     ]}
                   />
                 </View>
-              </View>
-
-              <View style={styles.kingdomDecreesPanel}>
-                <Text style={styles.kingdomDecreesTitle}>KINGDOM DECREES</Text>
-                <Text style={styles.kingdomDecreesSubtitle}>
-                  Choose one duty to restore the realm today.
-                </Text>
-                <View style={styles.kingdomDecreeList}>
-                  {kingdomDecrees.map((decree) => {
-                    const isDisabled =
-                      Boolean(completedKingdomDecree) && !decree.completed;
-
-                    return (
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityState={{
-                          checked: decree.completed,
-                          disabled: isDisabled,
-                        }}
-                        disabled={isDisabled}
-                        key={decree.id}
-                        onPress={() => toggleKingdomDecree(decree)}
-                        style={({ pressed }) => [
-                          styles.kingdomDecreeCard,
-                          decree.completed
-                            ? styles.kingdomDecreeCardCompleted
-                            : null,
-                          isDisabled ? styles.kingdomDecreeCardDisabled : null,
-                          pressed ? styles.homeActionPressed : null,
-                        ]}
-                      >
-                        <View style={styles.kingdomDecreeHeader}>
-                          <Text style={styles.kingdomDecreeType}>
-                            {getKingdomDecreeTypeLabel(decree.type)}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.kingdomDecreeState,
-                              decree.completed
-                                ? styles.kingdomDecreeStateCompleted
-                                : null,
-                            ]}
-                          >
-                            {decree.completed
-                              ? 'COMPLETED'
-                              : isDisabled
-                                ? 'SEALED'
-                                : 'AVAILABLE'}
-                          </Text>
-                        </View>
-                        <Text style={styles.kingdomDecreeFlavor}>
-                          {decree.flavorText}
-                        </Text>
-                        <Text style={styles.kingdomDecreeTask}>
-                          {decree.title}
-                        </Text>
-                        <Text style={styles.kingdomDecreeReward}>
-                          {getKingdomDecreeRewardText(decree)}
-                        </Text>
-                        <View
-                          style={[
-                            styles.kingdomDecreeAction,
-                            decree.completed
-                              ? styles.kingdomDecreeActionCompleted
-                              : null,
-                            isDisabled
-                              ? styles.kingdomDecreeActionDisabled
-                              : null,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.kingdomDecreeActionText,
-                              decree.completed
-                                ? styles.kingdomDecreeActionTextCompleted
-                                : null,
-                            ]}
-                          >
-                            {decree.completed
-                              ? 'Undo Decree'
-                              : isDisabled
-                                ? 'Unavailable Today'
-                                : 'Complete Decree'}
-                          </Text>
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-                <Text style={styles.kingdomDecreesFootnote}>
-                  The Empress favors a ruler who keeps his realm intact.
-                </Text>
               </View>
             </View>
           </>
@@ -2372,115 +2393,129 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   kingdomDecreesPanel: {
-    backgroundColor: '#1B1726',
-    borderColor: '#7A5A2A',
-    borderRadius: 14,
+    backgroundColor: '#17131F',
+    borderColor: '#B4813A',
+    borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 18,
-    padding: 14,
+    marginBottom: 14,
+    overflow: 'hidden',
+    paddingHorizontal: KINGDOM_DECREE_PANEL_HORIZONTAL_PADDING,
+    paddingTop: 11,
+    paddingBottom: 10,
+    shadowColor: '#A970FF',
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+  },
+  kingdomDecreesSeal: {
+    alignSelf: 'center',
+    backgroundColor: '#B4813A',
+    borderRadius: 999,
+    height: 2,
+    marginBottom: 8,
+    opacity: 0.9,
+    width: 70,
   },
   kingdomDecreesTitle: {
     color: '#F4F1DE',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '900',
-    marginBottom: 4,
+    marginBottom: 3,
     textAlign: 'center',
   },
   kingdomDecreesSubtitle: {
-    color: '#A8B0C7',
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 18,
-    marginBottom: 14,
+    color: '#D7C7A3',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+    marginBottom: 10,
     textAlign: 'center',
   },
   kingdomDecreeList: {
-    gap: 12,
+    gap: KINGDOM_DECREE_CARD_GAP,
+    paddingHorizontal: KINGDOM_DECREE_LIST_HORIZONTAL_PADDING,
   },
   kingdomDecreeCard: {
-    backgroundColor: '#202535',
-    borderColor: '#6F5630',
-    borderRadius: 10,
-    borderWidth: 1,
-    padding: 14,
+    alignItems: 'center',
+    backgroundColor: '#20202B',
+    borderColor: '#947345',
+    borderRadius: 8,
+    borderWidth: 1.25,
+    minHeight: 138,
+    paddingHorizontal: 5,
+    paddingVertical: 8,
   },
   kingdomDecreeCardCompleted: {
     borderColor: '#55D187',
+    backgroundColor: '#1C2A27',
   },
   kingdomDecreeCardDisabled: {
-    opacity: 0.46,
+    opacity: 0.42,
   },
-  kingdomDecreeHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
+  kingdomDecreeGlyph: {
+    color: '#F6C453',
+    fontSize: 27,
+    fontWeight: '900',
+    lineHeight: 30,
+    marginBottom: 3,
+    textAlign: 'center',
   },
   kingdomDecreeType: {
     color: '#F6C453',
-    flex: 1,
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  kingdomDecreeState: {
-    color: '#A8B0C7',
-    fontSize: 11,
-    fontWeight: '900',
-  },
-  kingdomDecreeStateCompleted: {
-    color: '#55D187',
-  },
-  kingdomDecreeFlavor: {
-    color: '#BFC5D8',
     fontSize: 13,
-    fontStyle: 'italic',
-    fontWeight: '600',
-    lineHeight: 18,
-    marginBottom: 10,
+    fontWeight: '900',
+    marginBottom: 6,
+    textAlign: 'center',
   },
   kingdomDecreeTask: {
-    color: '#F4F1DE',
-    fontSize: 17,
-    fontWeight: '900',
-    marginBottom: 8,
+    color: '#C8C0B2',
+    fontSize: 8,
+    fontWeight: '600',
+    lineHeight: 11,
+    marginBottom: 6,
+    minHeight: 22,
+    textAlign: 'center',
   },
   kingdomDecreeReward: {
     color: '#DDB875',
-    fontSize: 12,
+    fontSize: 9,
     fontWeight: '800',
-    lineHeight: 17,
-    marginBottom: 12,
+    lineHeight: 12,
+    marginBottom: 7,
+    minHeight: 24,
+    textAlign: 'center',
   },
-  kingdomDecreeAction: {
+  kingdomDecreeStatePill: {
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: '#F6C453',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    backgroundColor: '#2C3040',
+    borderColor: '#4B5471',
+    borderRadius: 999,
+    borderWidth: 1,
+    marginTop: 'auto',
+    paddingHorizontal: 5,
+    paddingVertical: 4,
   },
-  kingdomDecreeActionCompleted: {
+  kingdomDecreeStatePillCompleted: {
     backgroundColor: '#214734',
     borderColor: '#55D187',
-    borderWidth: 1,
   },
-  kingdomDecreeActionDisabled: {
-    backgroundColor: '#2C3040',
+  kingdomDecreeStatePillDisabled: {
+    backgroundColor: '#20232E',
+    borderColor: '#3B4052',
   },
-  kingdomDecreeActionText: {
-    color: '#171923',
-    fontSize: 12,
+  kingdomDecreeState: {
+    color: '#A8B0C7',
+    fontSize: 8,
     fontWeight: '900',
   },
-  kingdomDecreeActionTextCompleted: {
+  kingdomDecreeStateCompleted: {
     color: '#CFF4DC',
   },
   kingdomDecreesFootnote: {
     color: '#A8B0C7',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    lineHeight: 17,
-    marginTop: 14,
+    lineHeight: 15,
+    marginTop: 10,
     textAlign: 'center',
   },
   kingdomChecklistRow: {

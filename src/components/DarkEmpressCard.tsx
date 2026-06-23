@@ -60,7 +60,7 @@ export function DarkEmpressCard({
       </Text>
       <View style={styles.titleDividerMuted} />
       <View style={[styles.moodRow, compact ? styles.moodRowCompact : null]}>
-        <Text style={styles.moodLabel}>Current Mood:</Text>
+        <Text style={styles.moodLabel}>Mood</Text>
         <Text style={styles.moodValue}>{mood}</Text>
       </View>
 
@@ -120,7 +120,7 @@ export function DarkEmpressCard({
             compact ? styles.demandSubtitleCompact : null,
           ]}
         >
-          The Empress expects much.
+          The throne watches.
         </Text>
       </View>
     </View>
@@ -137,8 +137,8 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     overflow: 'hidden',
     paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 24,
+    paddingTop: 18,
+    paddingBottom: 20,
     shadowColor: '#A970FF',
     shadowOpacity: 0.36,
     shadowRadius: 24,
@@ -183,8 +183,8 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
+    gap: 10,
+    marginBottom: 13,
     paddingHorizontal: 14,
     paddingVertical: 7,
   },
