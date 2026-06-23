@@ -22,6 +22,16 @@ export function FinalizedBattleCard({
         <Text style={styles.label}>Victory Days</Text>
         <Text style={styles.value}>{victoryDays} / 7</Text>
       </View>
+      <View style={styles.row}>
+        <Text style={styles.label}>Kingdom Favor</Text>
+        <Text style={styles.value}>
+          +{finalizedBattle.kingdomFavorCounted} / +2
+        </Text>
+      </View>
+      <View style={styles.row}>
+        <Text style={styles.label}>Empress Score</Text>
+        <Text style={styles.value}>{finalizedBattle.empressScore}</Text>
+      </View>
       <Text style={styles.flavor}>Message: {finalizedBattle.flavorText}</Text>
     </View>
   );

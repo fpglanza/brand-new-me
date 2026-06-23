@@ -57,17 +57,28 @@ export function WeeklyBattlePreview({
         />
       </View>
       <View style={[styles.row, compact ? styles.rowCompact : null]}>
-        <Text style={styles.label}>Strong Days</Text>
-        <Text style={styles.value}>{weeklyBattle.strongDays}</Text>
+        <Text style={styles.label}>Kingdom Favor</Text>
+        <Text style={styles.value}>
+          +{weeklyBattle.kingdomFavorCounted} / +2
+        </Text>
       </View>
       <View style={[styles.row, compact ? styles.rowCompact : null]}>
-        <Text style={styles.label}>Legendary Days</Text>
-        <Text style={styles.value}>{weeklyBattle.legendaryDays}</Text>
+        <Text style={styles.label}>Empress Score</Text>
+        <Text style={styles.value}>{weeklyBattle.empressScore}</Text>
       </View>
       <View style={[styles.row, compact ? styles.rowCompact : null]}>
         <Text style={styles.label}>Projected Result</Text>
         <Text style={styles.result}>{weeklyBattle.result}</Text>
       </View>
+      <View style={[styles.secondaryRow, compact ? styles.rowCompact : null]}>
+        <Text style={styles.secondaryLabel}>Strong Days</Text>
+        <Text style={styles.secondaryValue}>{weeklyBattle.strongDays}</Text>
+        <Text style={styles.secondaryLabel}>Legendary Days</Text>
+        <Text style={styles.secondaryValue}>{weeklyBattle.legendaryDays}</Text>
+      </View>
+      <Text style={styles.favorNote}>
+        The Empress favors a ruler who keeps his realm intact.
+      </Text>
       <Text style={[styles.flavor, compact ? styles.flavorCompact : null]}>
         {weeklyBattle.flavorText}
       </Text>
@@ -137,6 +148,30 @@ const styles = StyleSheet.create({
     color: '#A970FF',
     fontSize: 15,
     fontWeight: '900',
+  },
+  secondaryRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  secondaryLabel: {
+    color: '#7F879D',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  secondaryValue: {
+    color: '#A8B0C7',
+    fontSize: 12,
+    fontWeight: '900',
+    marginRight: 6,
+  },
+  favorNote: {
+    color: '#DDB875',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
+    marginBottom: 6,
   },
   flavor: {
     color: '#A8B0C7',

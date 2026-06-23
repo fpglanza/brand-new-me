@@ -40,14 +40,13 @@ import {
   resetTodaysQuestsInDatabase,
   setShadowPowerInDatabase,
   startNewWeekInDatabase,
-  toggleKingdomChecklistItemInDatabase,
+  toggleKingdomDecreeInDatabase,
   toggleQuestInDatabase,
 } from './src/database/db';
 import type {
   FinalizedBattleResult,
   HeroAttributes,
-  KingdomChecklistFrequency,
-  KingdomChecklistItem,
+  KingdomDecree,
   KingdomState,
   Player,
   Quest,
@@ -65,6 +64,9 @@ const DEFAULT_WEEKLY_BATTLE: WeeklyBattlePreviewData = {
   victoryDays: 0,
   strongDays: 0,
   legendaryDays: 0,
+  kingdomFavor: 0,
+  kingdomFavorCounted: 0,
+  empressScore: 0,
 };
 
 const QUEST_CATEGORY_ORDER = [
@@ -124,13 +126,6 @@ const HERO_ATTRIBUTE_KEYS: {
 const HERO_ATTRIBUTE_MILESTONES = [100, 500, 1000, 2500, 5000];
 const KINGDOM_PROSPERITY_MILESTONES = [100, 250, 500, 1000, 2000];
 const CASTLE_PLACEHOLDER = require('./src/assets/kingdom/castle-placeholder.jpeg');
-
-const KINGDOM_FREQUENCY_ORDER: KingdomChecklistFrequency[] = [
-  'Weekly',
-  'Every 2 Weeks',
-  'Every 3 Weeks',
-  'Monthly',
-];
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const WEEKDAY_LABELS = [
@@ -335,6 +330,21 @@ function getKingdomStateLabel(prosperity: number) {
   return 'Ruins';
 }
 
+function getKingdomDecreeTypeLabel(type: KingdomDecree['type']) {
+  switch (type) {
+    case 'Order':
+      return 'ORDER DECREE';
+    case 'Restoration':
+      return 'RESTORATION DECREE';
+    case 'Stewardship':
+      return 'STEWARDSHIP DECREE';
+  }
+}
+
+function getKingdomDecreeRewardText(decree: KingdomDecree) {
+  return `+${decree.prosperityReward} Prosperity · +${decree.legacyReward} Legacy · +1 Favor`;
+}
+
 export default function App() {
   const windowDimensions = useWindowDimensions();
   const initialToday = getLocalDateString();
@@ -353,9 +363,7 @@ export default function App() {
   );
   const [finalizedBattle, setFinalizedBattle] =
     useState<FinalizedBattleResult | null>(null);
-  const [kingdomChecklist, setKingdomChecklist] = useState<
-    KingdomChecklistItem[]
-  >([]);
+  const [kingdomDecrees, setKingdomDecrees] = useState<KingdomDecree[]>([]);
   const [kingdomState, setKingdomState] = useState<KingdomState>(
     DEFAULT_KINGDOM_STATE,
   );
@@ -370,7 +378,7 @@ export default function App() {
   const [xpToastAmount, setXpToastAmount] = useState<number | null>(null);
   const [levelUpEvent, setLevelUpEvent] = useState<LevelUpEvent | null>(null);
   const completingQuestIdsRef = useRef(new Set<string>());
-  const togglingKingdomItemIdsRef = useRef(new Set<string>());
+  const togglingKingdomDecreeIdsRef = useRef(new Set<string>());
   const heroXpProgressAnim = useRef(new Animated.Value(0)).current;
   const dailyProgressAnim = useRef(new Animated.Value(0)).current;
   const heroAttributeAnim = useRef(new Animated.Value(0)).current;
@@ -408,7 +416,7 @@ export default function App() {
       setShadow(gameState.shadow);
       setWeeklyBattle(gameState.weeklyBattle);
       setFinalizedBattle(gameState.finalizedBattle);
-      setKingdomChecklist(gameState.kingdomChecklist);
+      setKingdomDecrees(gameState.kingdomDecrees);
       setKingdomState(gameState.kingdomState);
       setIsLoading(false);
     }
@@ -663,7 +671,7 @@ export default function App() {
       setShadow(gameState.shadow);
       setWeeklyBattle(gameState.weeklyBattle);
       setFinalizedBattle(gameState.finalizedBattle);
-      setKingdomChecklist(gameState.kingdomChecklist);
+      setKingdomDecrees(gameState.kingdomDecrees);
       setKingdomState(gameState.kingdomState);
 
       if (!quest.completed && gameState.player.totalXp > previousPlayer.totalXp) {
@@ -693,26 +701,26 @@ export default function App() {
     setShadow(gameState.shadow);
     setWeeklyBattle(gameState.weeklyBattle);
     setFinalizedBattle(gameState.finalizedBattle);
-    setKingdomChecklist(gameState.kingdomChecklist);
+    setKingdomDecrees(gameState.kingdomDecrees);
     setKingdomState(gameState.kingdomState);
 
     return gameState;
   };
 
-  const toggleKingdomChecklistItem = async (item: KingdomChecklistItem) => {
-    if (!db || togglingKingdomItemIdsRef.current.has(item.id)) {
+  const toggleKingdomDecree = async (decree: KingdomDecree) => {
+    if (!db || togglingKingdomDecreeIdsRef.current.has(decree.id)) {
       return;
     }
 
-    togglingKingdomItemIdsRef.current.add(item.id);
+    togglingKingdomDecreeIdsRef.current.add(decree.id);
 
     try {
-      await toggleKingdomChecklistItemInDatabase(db, item.id, today);
+      await toggleKingdomDecreeInDatabase(db, decree.id, today);
       await reloadState(db, today);
     } catch (error) {
-      console.error('Failed to toggle kingdom checklist item', error);
+      console.error('Failed to toggle kingdom decree', error);
     } finally {
-      togglingKingdomItemIdsRef.current.delete(item.id);
+      togglingKingdomDecreeIdsRef.current.delete(decree.id);
     }
   };
 
@@ -813,10 +821,9 @@ export default function App() {
   const availableBonusEfforts = BONUS_EFFORT_TEMPLATES.filter(
     (questTemplate) => !todaysQuestTemplateIds.has(questTemplate.id),
   );
-  const kingdomChecklistGroups = KINGDOM_FREQUENCY_ORDER.map((frequency) => ({
-    frequency,
-    items: kingdomChecklist.filter((item) => item.frequency === frequency),
-  })).filter((group) => group.items.length > 0);
+  const completedKingdomDecree = kingdomDecrees.find(
+    (decree) => decree.completed,
+  );
   const kingdomProsperityMilestone = getKingdomProsperityMilestone(
     kingdomState.prosperity,
   );
@@ -1327,53 +1334,96 @@ export default function App() {
                 </View>
               </View>
 
-              <View style={styles.questList}>
-                {kingdomChecklistGroups.map((group) => (
-                  <View key={group.frequency} style={styles.questGroupCard}>
-                    <Text style={styles.questGroupTitle}>
-                      {group.frequency.toUpperCase()}
-                    </Text>
-                    <View style={styles.questGroupList}>
-                      {group.items.map((item) => (
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityState={{ checked: item.completed }}
-                          key={item.id}
-                          onPress={() => toggleKingdomChecklistItem(item)}
+              <View style={styles.kingdomDecreesPanel}>
+                <Text style={styles.kingdomDecreesTitle}>KINGDOM DECREES</Text>
+                <Text style={styles.kingdomDecreesSubtitle}>
+                  Choose one duty to restore the realm today.
+                </Text>
+                <View style={styles.kingdomDecreeList}>
+                  {kingdomDecrees.map((decree) => {
+                    const isDisabled =
+                      Boolean(completedKingdomDecree) && !decree.completed;
+
+                    return (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{
+                          checked: decree.completed,
+                          disabled: isDisabled,
+                        }}
+                        disabled={isDisabled}
+                        key={decree.id}
+                        onPress={() => toggleKingdomDecree(decree)}
+                        style={({ pressed }) => [
+                          styles.kingdomDecreeCard,
+                          decree.completed
+                            ? styles.kingdomDecreeCardCompleted
+                            : null,
+                          isDisabled ? styles.kingdomDecreeCardDisabled : null,
+                          pressed ? styles.homeActionPressed : null,
+                        ]}
+                      >
+                        <View style={styles.kingdomDecreeHeader}>
+                          <Text style={styles.kingdomDecreeType}>
+                            {getKingdomDecreeTypeLabel(decree.type)}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.kingdomDecreeState,
+                              decree.completed
+                                ? styles.kingdomDecreeStateCompleted
+                                : null,
+                            ]}
+                          >
+                            {decree.completed
+                              ? 'COMPLETED'
+                              : isDisabled
+                                ? 'SEALED'
+                                : 'AVAILABLE'}
+                          </Text>
+                        </View>
+                        <Text style={styles.kingdomDecreeFlavor}>
+                          {decree.flavorText}
+                        </Text>
+                        <Text style={styles.kingdomDecreeTask}>
+                          {decree.title}
+                        </Text>
+                        <Text style={styles.kingdomDecreeReward}>
+                          {getKingdomDecreeRewardText(decree)}
+                        </Text>
+                        <View
                           style={[
-                            styles.kingdomChecklistRow,
-                            item.completed
-                              ? styles.kingdomChecklistRowCompleted
+                            styles.kingdomDecreeAction,
+                            decree.completed
+                              ? styles.kingdomDecreeActionCompleted
+                              : null,
+                            isDisabled
+                              ? styles.kingdomDecreeActionDisabled
                               : null,
                           ]}
                         >
-                          <View
-                            style={[
-                              styles.kingdomCheckmark,
-                              item.completed
-                                ? styles.kingdomCheckmarkCompleted
-                                : null,
-                            ]}
-                          >
-                            <Text style={styles.kingdomCheckmarkText}>
-                              {item.completed ? '✓' : ''}
-                            </Text>
-                          </View>
                           <Text
                             style={[
-                              styles.kingdomChecklistTitle,
-                              item.completed
-                                ? styles.kingdomChecklistTitleCompleted
+                              styles.kingdomDecreeActionText,
+                              decree.completed
+                                ? styles.kingdomDecreeActionTextCompleted
                                 : null,
                             ]}
                           >
-                            {item.title}
+                            {decree.completed
+                              ? 'Undo Decree'
+                              : isDisabled
+                                ? 'Unavailable Today'
+                                : 'Complete Decree'}
                           </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  </View>
-                ))}
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text style={styles.kingdomDecreesFootnote}>
+                  The Empress favors a ruler who keeps his realm intact.
+                </Text>
               </View>
             </View>
           </>
@@ -2320,6 +2370,118 @@ const styles = StyleSheet.create({
     backgroundColor: '#A970FF',
     borderRadius: 8,
     height: '100%',
+  },
+  kingdomDecreesPanel: {
+    backgroundColor: '#1B1726',
+    borderColor: '#7A5A2A',
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 18,
+    padding: 14,
+  },
+  kingdomDecreesTitle: {
+    color: '#F4F1DE',
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  kingdomDecreesSubtitle: {
+    color: '#A8B0C7',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginBottom: 14,
+    textAlign: 'center',
+  },
+  kingdomDecreeList: {
+    gap: 12,
+  },
+  kingdomDecreeCard: {
+    backgroundColor: '#202535',
+    borderColor: '#6F5630',
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 14,
+  },
+  kingdomDecreeCardCompleted: {
+    borderColor: '#55D187',
+  },
+  kingdomDecreeCardDisabled: {
+    opacity: 0.46,
+  },
+  kingdomDecreeHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  kingdomDecreeType: {
+    color: '#F6C453',
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  kingdomDecreeState: {
+    color: '#A8B0C7',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  kingdomDecreeStateCompleted: {
+    color: '#55D187',
+  },
+  kingdomDecreeFlavor: {
+    color: '#BFC5D8',
+    fontSize: 13,
+    fontStyle: 'italic',
+    fontWeight: '600',
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+  kingdomDecreeTask: {
+    color: '#F4F1DE',
+    fontSize: 17,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  kingdomDecreeReward: {
+    color: '#DDB875',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
+    marginBottom: 12,
+  },
+  kingdomDecreeAction: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#F6C453',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  kingdomDecreeActionCompleted: {
+    backgroundColor: '#214734',
+    borderColor: '#55D187',
+    borderWidth: 1,
+  },
+  kingdomDecreeActionDisabled: {
+    backgroundColor: '#2C3040',
+  },
+  kingdomDecreeActionText: {
+    color: '#171923',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  kingdomDecreeActionTextCompleted: {
+    color: '#CFF4DC',
+  },
+  kingdomDecreesFootnote: {
+    color: '#A8B0C7',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    marginTop: 14,
+    textAlign: 'center',
   },
   kingdomChecklistRow: {
     alignItems: 'center',

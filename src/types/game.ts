@@ -56,6 +56,9 @@ export type WeeklyBattlePreview = {
   victoryDays: number;
   strongDays: number;
   legendaryDays: number;
+  kingdomFavor: number;
+  kingdomFavorCounted: number;
+  empressScore: number;
 };
 
 export type FinalizedBattleResult = {
@@ -64,6 +67,9 @@ export type FinalizedBattleResult = {
   completionRate: number;
   result: WeeklyResult;
   flavorText: string;
+  kingdomFavor: number;
+  kingdomFavorCounted: number;
+  empressScore: number;
   createdAt: string;
 };
 
@@ -89,6 +95,21 @@ export type KingdomState = {
   legacy: number;
 };
 
+export type KingdomDecreeType = 'Order' | 'Restoration' | 'Stewardship';
+
+export type KingdomDecree = {
+  id: string;
+  date: string;
+  templateId: string;
+  type: KingdomDecreeType;
+  title: string;
+  flavorText: string;
+  prosperityReward: number;
+  legacyReward: number;
+  completed: boolean;
+  completedAt: string | null;
+};
+
 export type GameState = {
   player: Player;
   heroAttributes: HeroAttributes;
@@ -98,5 +119,6 @@ export type GameState = {
   weeklyBattle: WeeklyBattlePreview;
   finalizedBattle: FinalizedBattleResult | null;
   kingdomChecklist: KingdomChecklistItem[];
+  kingdomDecrees: KingdomDecree[];
   kingdomState: KingdomState;
 };

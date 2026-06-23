@@ -6,6 +6,8 @@ import type {
   HeroAttributes,
   KingdomChecklistFrequency,
   KingdomChecklistItem,
+  KingdomDecree,
+  KingdomDecreeType,
   KingdomState,
   Player,
   Quest,
@@ -71,6 +73,8 @@ type WeeklyResultRow = {
   week_start: string;
   completion_rate: number;
   result: WeeklyResult;
+  kingdom_favor?: number;
+  empress_score?: number;
   created_at: string;
 };
 
@@ -88,6 +92,19 @@ type KingdomStateRow = {
   id: string;
   prosperity: number;
   legacy: number;
+};
+
+type KingdomDecreeRow = {
+  id: string;
+  date: string;
+  template_id: string;
+  decree_type: KingdomDecreeType;
+  title: string;
+  flavor_text: string;
+  prosperity_reward: number;
+  legacy_reward: number;
+  completed: number;
+  completed_at: string | null;
 };
 
 const BASE_LEVEL_XP = 1000;
@@ -393,6 +410,44 @@ const KINGDOM_CHECKLIST_TEMPLATES: {
   },
 ];
 
+const KINGDOM_DECREE_TYPE_ORDER: KingdomDecreeType[] = [
+  'Order',
+  'Restoration',
+  'Stewardship',
+];
+
+const KINGDOM_DECREE_TYPE_BY_TEMPLATE_ID: Record<string, KingdomDecreeType> = {
+  laundry: 'Order',
+  'vacuum-sweep': 'Order',
+  mop: 'Order',
+  'empty-bins': 'Order',
+  'general-reset-20-30-min': 'Order',
+  'change-sheets': 'Restoration',
+  'deep-bathroom-clean': 'Restoration',
+  'full-fridge-clean': 'Restoration',
+  'decluttering-15-30-min': 'Restoration',
+  'mirrors-surfaces': 'Restoration',
+  'grocery-support': 'Stewardship',
+  'fridge-check': 'Stewardship',
+  'pantry-check': 'Stewardship',
+  'personal-budget-review': 'Stewardship',
+};
+
+const KINGDOM_DECREE_FLAVOR_BY_TYPE: Record<KingdomDecreeType, string[]> = {
+  Order: [
+    'The realm must not fall into disorder.',
+    'Small acts keep ruin at bay.',
+  ],
+  Restoration: [
+    'A neglected corner of the realm can be reclaimed.',
+    'What was ruined may yet be restored.',
+  ],
+  Stewardship: [
+    'A wise ruler prepares before scarcity arrives.',
+    'The realm survives through foresight.',
+  ],
+};
+
 export const BONUS_EFFORT_TEMPLATES: QuestTemplate[] = [
   {
     id: 'workout-a',
@@ -548,6 +603,7 @@ export async function loadGameState(
 ): Promise<GameState> {
   await createQuestsFromWeekStartThroughDateIfNeeded(db, today);
   await createKingdomChecklistForWeekIfNeeded(db, today);
+  await createKingdomDecreesForDateIfNeeded(db, today);
   await rollOverShadowWeekIfNeeded(db, today);
   const weeklyBattle = await calculateCurrentWeekBattlePreview(db, today);
   const finalizedBattle = await getCurrentWeekFinalizedBattle(db, today);
@@ -580,6 +636,23 @@ export async function loadGameState(
     'SELECT id, prosperity, legacy FROM kingdom_state WHERE id = ?',
     KINGDOM_STATE_ID,
   );
+  const kingdomDecreeRows = await db.getAllAsync<KingdomDecreeRow>(
+    `SELECT
+      id,
+      date,
+      template_id,
+      decree_type,
+      title,
+      flavor_text,
+      prosperity_reward,
+      legacy_reward,
+      completed,
+      completed_at
+    FROM kingdom_decrees
+    WHERE date = ?
+    ORDER BY rowid ASC`,
+    today,
+  );
 
   return {
     player: playerRow ? mapPlayerRow(playerRow) : DEFAULT_PLAYER,
@@ -592,6 +665,7 @@ export async function loadGameState(
     weeklyBattle,
     finalizedBattle,
     kingdomChecklist: kingdomChecklistRows.map(mapKingdomChecklistRow),
+    kingdomDecrees: kingdomDecreeRows.map(mapKingdomDecreeRow),
     kingdomState: kingdomStateRow
       ? mapKingdomStateRow(kingdomStateRow)
       : DEFAULT_KINGDOM_STATE,
@@ -604,7 +678,7 @@ export async function getCurrentWeekFinalizedBattle(
 ): Promise<FinalizedBattleResult | null> {
   const weekStart = getWeekStartDateString(parseLocalDate(today));
   const row = await db.getFirstAsync<WeeklyResultRow>(
-    'SELECT id, week_start, completion_rate, result, created_at FROM weekly_results WHERE week_start = ?',
+    'SELECT id, week_start, completion_rate, result, kingdom_favor, empress_score, created_at FROM weekly_results WHERE week_start = ?',
     weekStart,
   );
 
@@ -637,7 +711,10 @@ export async function calculateCurrentWeekBattlePreview(
     (row) => row.daily_progress >= 150,
   ).length;
   const completionRate = victoryDays / 7;
-  const result = getWeeklyResult(victoryDays);
+  const kingdomFavor = await getKingdomFavorForWeek(db, weekStart);
+  const kingdomFavorCounted = Math.min(kingdomFavor, 2);
+  const empressScore = victoryDays + kingdomFavorCounted;
+  const result = getWeeklyResult(empressScore);
 
   return {
     weekStart,
@@ -647,6 +724,9 @@ export async function calculateCurrentWeekBattlePreview(
     victoryDays,
     strongDays,
     legendaryDays,
+    kingdomFavor,
+    kingdomFavorCounted,
+    empressScore,
   };
 }
 
@@ -899,6 +979,7 @@ export async function resetAllDataInDatabase(
     await db.runAsync('DELETE FROM shadow');
     await db.runAsync('DELETE FROM weekly_results');
     await db.runAsync('DELETE FROM kingdom_checklist');
+    await db.runAsync('DELETE FROM kingdom_decrees');
     await db.runAsync('DELETE FROM kingdom_state');
 
     await db.runAsync(
@@ -958,9 +1039,11 @@ export async function resetAllDataInDatabase(
     }
 
     await createKingdomChecklistForWeekIfNeeded(db, today);
+    await createKingdomDecreesForDateIfNeeded(db, today);
   });
 
   await createKingdomChecklistForWeekIfNeeded(db, today);
+  await createKingdomDecreesForDateIfNeeded(db, today);
 }
 
 export async function reseedQuestCatalogForDateInDatabase(
@@ -1166,18 +1249,133 @@ export async function toggleKingdomChecklistItemInDatabase(
   });
 }
 
+export async function toggleKingdomDecreeInDatabase(
+  db: SQLite.SQLiteDatabase,
+  decreeId: string,
+  today = getLocalDateString(),
+) {
+  await createKingdomDecreesForDateIfNeeded(db, today);
+
+  await db.withTransactionAsync(async () => {
+    const decree = await db.getFirstAsync<KingdomDecreeRow>(
+      `SELECT
+        id,
+        date,
+        template_id,
+        decree_type,
+        title,
+        flavor_text,
+        prosperity_reward,
+        legacy_reward,
+        completed,
+        completed_at
+      FROM kingdom_decrees
+      WHERE id = ? AND date = ?`,
+      decreeId,
+      today,
+    );
+    const completedDecree = await db.getFirstAsync<{ id: string }>(
+      'SELECT id FROM kingdom_decrees WHERE date = ? AND completed = 1',
+      today,
+    );
+    const kingdomState = await db.getFirstAsync<KingdomStateRow>(
+      'SELECT id, prosperity, legacy FROM kingdom_state WHERE id = ?',
+      KINGDOM_STATE_ID,
+    );
+
+    if (!decree || !kingdomState) {
+      return;
+    }
+
+    if (decree.completed === 0 && completedDecree) {
+      return;
+    }
+
+    const isCompleting = decree.completed === 0;
+    const nextProsperity = Math.max(
+      kingdomState.prosperity +
+        (isCompleting ? decree.prosperity_reward : -decree.prosperity_reward),
+      0,
+    );
+    const nextLegacy = Math.max(
+      kingdomState.legacy + (isCompleting ? decree.legacy_reward : 0),
+      0,
+    );
+
+    await db.runAsync(
+      'UPDATE kingdom_decrees SET completed = ?, completed_at = ? WHERE id = ? AND date = ?',
+      isCompleting ? 1 : 0,
+      isCompleting ? new Date().toISOString() : null,
+      decreeId,
+      today,
+    );
+    await db.runAsync(
+      `INSERT INTO kingdom_state (id, prosperity, legacy) VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        prosperity = excluded.prosperity,
+        legacy = excluded.legacy`,
+      KINGDOM_STATE_ID,
+      nextProsperity,
+      nextLegacy,
+    );
+  });
+}
+
 export async function resetKingdomChecklistForWeekInDatabase(
   db: SQLite.SQLiteDatabase,
   today = getLocalDateString(),
 ) {
   const activeKingdomWindowKeys = getActiveKingdomWindowKeys(today);
   await createKingdomChecklistForWeekIfNeeded(db, today);
-  await db.runAsync(
-    `UPDATE kingdom_checklist
-    SET completed = 0
-    WHERE window_key IN (${activeKingdomWindowKeys.map(() => '?').join(', ')})`,
-    ...activeKingdomWindowKeys,
-  );
+
+  await db.withTransactionAsync(async () => {
+    const completedDecrees = await db.getAllAsync<KingdomDecreeRow>(
+      `SELECT
+        id,
+        date,
+        template_id,
+        decree_type,
+        title,
+        flavor_text,
+        prosperity_reward,
+        legacy_reward,
+        completed,
+        completed_at
+      FROM kingdom_decrees
+      WHERE date = ? AND completed = 1`,
+      today,
+    );
+    const prosperityToReverse = completedDecrees.reduce(
+      (total, decree) => total + decree.prosperity_reward,
+      0,
+    );
+    const kingdomState = await db.getFirstAsync<KingdomStateRow>(
+      'SELECT id, prosperity, legacy FROM kingdom_state WHERE id = ?',
+      KINGDOM_STATE_ID,
+    );
+
+    await db.runAsync(
+      `UPDATE kingdom_checklist
+      SET completed = 0
+      WHERE window_key IN (${activeKingdomWindowKeys.map(() => '?').join(', ')})`,
+      ...activeKingdomWindowKeys,
+    );
+    await db.runAsync('DELETE FROM kingdom_decrees WHERE date = ?', today);
+
+    if (kingdomState && prosperityToReverse > 0) {
+      await db.runAsync(
+        `INSERT INTO kingdom_state (id, prosperity, legacy) VALUES (?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          prosperity = excluded.prosperity,
+          legacy = excluded.legacy`,
+        KINGDOM_STATE_ID,
+        Math.max(kingdomState.prosperity - prosperityToReverse, 0),
+        kingdomState.legacy,
+      );
+    }
+  });
+
+  await createKingdomDecreesForDateIfNeeded(db, today);
 }
 
 export async function setShadowPowerInDatabase(
@@ -1211,16 +1409,28 @@ export async function finalizeCurrentWeekInDatabase(
   const createdAt = new Date().toISOString();
 
   await db.runAsync(
-    `INSERT INTO weekly_results (id, week_start, completion_rate, result, created_at)
-    VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO weekly_results (
+      id,
+      week_start,
+      completion_rate,
+      result,
+      kingdom_favor,
+      empress_score,
+      created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       completion_rate = excluded.completion_rate,
       result = excluded.result,
+      kingdom_favor = excluded.kingdom_favor,
+      empress_score = excluded.empress_score,
       created_at = excluded.created_at`,
     id,
     weeklyBattle.weekStart,
     weeklyBattle.completionRate,
     weeklyBattle.result,
+    weeklyBattle.kingdomFavor,
+    weeklyBattle.empressScore,
     createdAt,
   );
 }
@@ -1383,6 +1593,8 @@ async function setupDatabase(db: SQLite.SQLiteDatabase, today: string) {
       week_start TEXT NOT NULL,
       completion_rate REAL NOT NULL,
       result TEXT NOT NULL,
+      kingdom_favor INTEGER NOT NULL DEFAULT 0,
+      empress_score INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS weekly_results_week_start_idx ON weekly_results (week_start);
@@ -1400,12 +1612,26 @@ async function setupDatabase(db: SQLite.SQLiteDatabase, today: string) {
       prosperity INTEGER NOT NULL,
       legacy INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS kingdom_decrees (
+      id TEXT PRIMARY KEY NOT NULL,
+      date TEXT NOT NULL,
+      template_id TEXT NOT NULL,
+      decree_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      flavor_text TEXT NOT NULL,
+      prosperity_reward INTEGER NOT NULL,
+      legacy_reward INTEGER NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      completed_at TEXT
+    );
     CREATE INDEX IF NOT EXISTS kingdom_checklist_week_start_idx ON kingdom_checklist (week_start);
+    CREATE INDEX IF NOT EXISTS kingdom_decrees_date_idx ON kingdom_decrees (date);
   `);
 
   await migrateQuestTableIfNeeded(db, today);
   await migrateHeroAttributesTableIfNeeded(db);
   await migrateShadowTableIfNeeded(db, today);
+  await migrateWeeklyResultsTableIfNeeded(db);
   await migrateKingdomChecklistTableIfNeeded(db);
   await db.execAsync(
     'CREATE INDEX IF NOT EXISTS kingdom_checklist_window_key_idx ON kingdom_checklist (window_key)',
@@ -1440,6 +1666,7 @@ async function setupDatabase(db: SQLite.SQLiteDatabase, today: string) {
 
   await createQuestsFromWeekStartThroughDateIfNeeded(db, today);
   await createKingdomChecklistForWeekIfNeeded(db, today);
+  await createKingdomDecreesForDateIfNeeded(db, today);
 }
 
 async function rollOverShadowWeekIfNeeded(
@@ -1594,12 +1821,19 @@ function mapShadowRow(row: ShadowRow): Shadow {
 }
 
 function mapWeeklyResultRow(row: WeeklyResultRow): FinalizedBattleResult {
+  const victoryDays = Math.round(row.completion_rate * 7);
+  const kingdomFavor = row.kingdom_favor ?? 0;
+  const kingdomFavorCounted = Math.min(kingdomFavor, 2);
+
   return {
     id: row.id,
     weekStart: row.week_start,
     completionRate: row.completion_rate,
     result: row.result,
     flavorText: getWeeklyFlavorText(row.result),
+    kingdomFavor,
+    kingdomFavorCounted,
+    empressScore: row.empress_score ?? victoryDays + kingdomFavorCounted,
     createdAt: row.created_at,
   };
 }
@@ -1621,6 +1855,21 @@ function mapKingdomStateRow(row: KingdomStateRow): KingdomState {
     id: row.id,
     prosperity: row.prosperity,
     legacy: row.legacy,
+  };
+}
+
+function mapKingdomDecreeRow(row: KingdomDecreeRow): KingdomDecree {
+  return {
+    id: row.id,
+    date: row.date,
+    templateId: row.template_id,
+    type: row.decree_type,
+    title: row.title,
+    flavorText: row.flavor_text,
+    prosperityReward: row.prosperity_reward,
+    legacyReward: row.legacy_reward,
+    completed: row.completed === 1,
+    completedAt: row.completed_at,
   };
 }
 
@@ -1766,6 +2015,32 @@ async function migrateShadowTableIfNeeded(
     'UPDATE shadow SET week_start = ? WHERE week_start IS NULL',
     activeWeekStart,
   );
+}
+
+async function migrateWeeklyResultsTableIfNeeded(db: SQLite.SQLiteDatabase) {
+  const tableInfo = await db.getAllAsync<{ name: string }>(
+    'PRAGMA table_info(weekly_results)',
+  );
+  const hasWeeklyResultsTable = tableInfo.length > 0;
+
+  if (!hasWeeklyResultsTable) {
+    return;
+  }
+
+  if (!tableInfo.some((column) => column.name === 'kingdom_favor')) {
+    await db.execAsync(
+      'ALTER TABLE weekly_results ADD COLUMN kingdom_favor INTEGER NOT NULL DEFAULT 0',
+    );
+  }
+
+  if (!tableInfo.some((column) => column.name === 'empress_score')) {
+    await db.execAsync(
+      'ALTER TABLE weekly_results ADD COLUMN empress_score INTEGER NOT NULL DEFAULT 0',
+    );
+    await db.runAsync(
+      'UPDATE weekly_results SET empress_score = ROUND(completion_rate * 7) WHERE empress_score = 0',
+    );
+  }
 }
 
 async function migrateKingdomChecklistTableIfNeeded(db: SQLite.SQLiteDatabase) {
@@ -1957,6 +2232,52 @@ async function createKingdomChecklistForWeekIfNeeded(
   }
 }
 
+async function createKingdomDecreesForDateIfNeeded(
+  db: SQLite.SQLiteDatabase,
+  date: string,
+) {
+  const existingDecree = await db.getFirstAsync<{ id: string }>(
+    'SELECT id FROM kingdom_decrees WHERE date = ? LIMIT 1',
+    date,
+  );
+
+  if (existingDecree) {
+    return;
+  }
+
+  const selectedTemplates = getKingdomDecreeTemplatesForDate(date);
+
+  for (const [index, template] of selectedTemplates.entries()) {
+    const type = getKingdomDecreeType(template.id);
+    const rewards = getKingdomDecreeRewards(template.id, type);
+
+    await db.runAsync(
+      `INSERT OR IGNORE INTO kingdom_decrees (
+        id,
+        date,
+        template_id,
+        decree_type,
+        title,
+        flavor_text,
+        prosperity_reward,
+        legacy_reward,
+        completed,
+        completed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      getKingdomDecreeId(date, template.id),
+      date,
+      template.id,
+      type,
+      template.title,
+      getKingdomDecreeFlavor(type, date, index),
+      rewards.prosperityReward,
+      rewards.legacyReward,
+      0,
+      null,
+    );
+  }
+}
+
 function getQuestInstanceId(date: string, templateId: string) {
   return `${date}:${templateId}`;
 }
@@ -2005,6 +2326,118 @@ function getKingdomChecklistItemId(windowKey: string, templateId: string) {
   return `${windowKey}:${templateId}`;
 }
 
+function getKingdomDecreeId(date: string, templateId: string) {
+  return `${date}:decree:${templateId}`;
+}
+
+function getKingdomDecreeTemplatesForDate(date: string) {
+  const selectedTemplateIds = new Set<string>();
+  const selections = KINGDOM_DECREE_TYPE_ORDER.flatMap((type, typeIndex) =>
+    getDateRotatedTemplatesForType(date, type, typeIndex),
+  );
+  const selected = selections.filter((template) => {
+    if (selectedTemplateIds.has(template.id)) {
+      return false;
+    }
+
+    selectedTemplateIds.add(template.id);
+    return true;
+  });
+
+  if (selected.length >= 3) {
+    return selected.slice(0, 3);
+  }
+
+  const fallbackTemplates = rotateByDateSeed(
+    KINGDOM_CHECKLIST_TEMPLATES,
+    date,
+    11,
+  );
+
+  for (const template of fallbackTemplates) {
+    if (selectedTemplateIds.has(template.id)) {
+      continue;
+    }
+
+    selected.push(template);
+    selectedTemplateIds.add(template.id);
+
+    if (selected.length === 3) {
+      break;
+    }
+  }
+
+  return selected;
+}
+
+function getDateRotatedTemplatesForType(
+  date: string,
+  type: KingdomDecreeType,
+  offset: number,
+) {
+  const templates = KINGDOM_CHECKLIST_TEMPLATES.filter(
+    (template) => getKingdomDecreeType(template.id) === type,
+  );
+
+  return rotateByDateSeed(templates, date, offset).slice(0, 1);
+}
+
+function rotateByDateSeed<T>(items: T[], date: string, offset: number) {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const startIndex = (getStableDateSeed(date) + offset) % items.length;
+
+  return [...items.slice(startIndex), ...items.slice(0, startIndex)];
+}
+
+function getStableDateSeed(date: string) {
+  return date.split('').reduce((total, character) => {
+    return total + character.charCodeAt(0);
+  }, 0);
+}
+
+function getKingdomDecreeType(templateId: string): KingdomDecreeType {
+  return KINGDOM_DECREE_TYPE_BY_TEMPLATE_ID[templateId] ?? 'Order';
+}
+
+function getKingdomDecreeFlavor(
+  type: KingdomDecreeType,
+  date: string,
+  index: number,
+) {
+  const flavors = KINGDOM_DECREE_FLAVOR_BY_TYPE[type];
+  const flavorIndex = (getStableDateSeed(date) + index) % flavors.length;
+
+  return flavors[flavorIndex];
+}
+
+function getKingdomDecreeRewards(
+  templateId: string,
+  type: KingdomDecreeType,
+) {
+  const baseReward = getKingdomChecklistReward(templateId);
+
+  switch (type) {
+    case 'Order':
+      return {
+        prosperityReward: baseReward,
+        legacyReward: Math.max(baseReward, 5),
+      };
+    case 'Restoration':
+      return {
+        prosperityReward: baseReward + 5,
+        legacyReward: baseReward,
+      };
+    case 'Stewardship':
+      return {
+        prosperityReward: baseReward,
+        legacyReward: baseReward + 5,
+      };
+  }
+}
+
 function getWeekEndDateString(weekStart: string) {
   const weekEnd = parseLocalDate(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
@@ -2018,12 +2451,28 @@ function parseLocalDate(date: string) {
   return new Date(year, month - 1, day);
 }
 
-function getWeeklyResult(victoryDays: number): WeeklyResult {
-  if (victoryDays >= 5) {
+async function getKingdomFavorForWeek(
+  db: SQLite.SQLiteDatabase,
+  weekStart: string,
+) {
+  const weekEnd = getWeekEndDateString(weekStart);
+  const row = await db.getFirstAsync<{ kingdom_favor: number }>(
+    `SELECT COUNT(*) AS kingdom_favor
+    FROM kingdom_decrees
+    WHERE date >= ? AND date <= ? AND completed = 1`,
+    weekStart,
+    weekEnd,
+  );
+
+  return row?.kingdom_favor ?? 0;
+}
+
+function getWeeklyResult(empressScore: number): WeeklyResult {
+  if (empressScore >= 5) {
     return 'Victory';
   }
 
-  if (victoryDays === 4) {
+  if (empressScore === 4) {
     return 'Draw';
   }
 
