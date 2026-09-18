@@ -214,6 +214,14 @@ const DAILY_BASELINE_QUEST_TEMPLATES: QuestTemplate[] = [
     xp: 10,
   },
   {
+    id: 'master-the-road',
+    title: 'MASTER THE ROAD',
+    category: 'Mind',
+    description:
+      'Study driving theory. Path to the Mount — study the laws of the road. Earn the right to claim your mount.',
+    xp: 20,
+  },
+  {
     id: 'huel-breakfast',
     title: 'Huel Breakfast',
     category: 'Fuel',
@@ -2007,6 +2015,8 @@ export function getHeroAttributeGain(templateId: string) {
       return { body: 5, mind: 0, purpose: 0 };
     case 'mindfulness':
       return { body: 0, mind: 5, purpose: 0 };
+    case 'master-the-road':
+      return { body: 0, mind: 15, purpose: 0 };
     case 'writing':
       return { body: 0, mind: 15, purpose: 0 };
     case 'side-project':
