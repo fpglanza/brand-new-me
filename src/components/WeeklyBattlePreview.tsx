@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { WeeklyBattlePreview as WeeklyBattlePreviewData } from '../types/game';
+import { theme } from '../theme';
 
 type WeeklyBattlePreviewProps = {
   compact?: boolean;
@@ -87,9 +88,9 @@ export function WeeklyBattlePreview({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#171923',
-    borderColor: '#5A4B72',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.large,
     borderWidth: 1,
     marginBottom: 28,
     padding: 14,
@@ -99,7 +100,7 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   title: {
-    color: '#F4F1DE',
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: '900',
     marginBottom: 10,
@@ -110,9 +111,9 @@ const styles = StyleSheet.create({
   },
   resultRow: {
     alignItems: 'center',
-    backgroundColor: '#1F1B2B',
-    borderColor: '#4E3477',
-    borderRadius: 10,
+    backgroundColor: theme.colors.backgroundRaised,
+    borderColor: theme.colors.violetDeep,
+    borderRadius: theme.radius.medium,
     borderWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -130,9 +131,9 @@ const styles = StyleSheet.create({
   },
   judgmentTile: {
     alignItems: 'center',
-    backgroundColor: '#202535',
-    borderColor: '#3E4661',
-    borderRadius: 9,
+    backgroundColor: theme.colors.backgroundRaised,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.medium,
     borderWidth: 1,
     flex: 1,
     minHeight: 58,
@@ -140,9 +141,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   progressTrack: {
-    backgroundColor: '#171923',
-    borderColor: '#3E4661',
-    borderRadius: 8,
+    backgroundColor: theme.colors.shadow,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.small,
     borderWidth: 1,
     height: 12,
     marginBottom: 12,
@@ -152,25 +153,25 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   progressFill: {
-    backgroundColor: '#A970FF',
-    borderRadius: 8,
+    backgroundColor: theme.colors.violet,
+    borderRadius: theme.radius.small,
     height: '100%',
   },
   label: {
-    color: '#A8B0C7',
+    color: theme.colors.textMuted,
     fontSize: 11,
     fontWeight: '800',
     textAlign: 'center',
   },
   value: {
-    color: '#F6C453',
+    color: theme.colors.gold,
     fontSize: 14,
     fontWeight: '900',
     marginTop: 4,
     textAlign: 'center',
   },
   result: {
-    color: '#A970FF',
+    color: theme.colors.violetBright,
     fontSize: 16,
     fontWeight: '900',
   },
@@ -192,7 +193,7 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   favorNote: {
-    color: '#DDB875',
+    color: theme.colors.gold,
     fontSize: 12,
     fontWeight: '800',
     lineHeight: 17,

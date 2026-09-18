@@ -1,5 +1,7 @@
 import { Pressable, StyleSheet, Text } from 'react-native';
 
+import { theme } from '../theme';
+
 type FloatingBackButtonProps = {
   onPress: () => void;
 };
@@ -20,23 +22,23 @@ export function FloatingBackButton({ onPress }: FloatingBackButtonProps) {
 const styles = StyleSheet.create({
   button: {
     alignItems: 'center',
-    backgroundColor: '#171923',
-    borderColor: '#3E4661',
-    borderRadius: 28,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderColor: theme.colors.goldDeep,
+    borderRadius: 6,
     borderWidth: 1,
     bottom: 24,
     height: 56,
     justifyContent: 'center',
     position: 'absolute',
     right: 24,
-    shadowColor: '#A970FF',
+    shadowColor: theme.colors.violet,
     shadowOpacity: 0.2,
     shadowRadius: 12,
     width: 56,
     zIndex: 20,
   },
   icon: {
-    color: '#F4F1DE',
+    color: theme.colors.text,
     fontSize: 36,
     fontWeight: '700',
     lineHeight: 40,

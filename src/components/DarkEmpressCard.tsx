@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Animated, Image, StyleSheet, Text, View } from 'react-native';
 
 import type { WeeklyResult } from '../types/game';
+import { theme } from '../theme';
 
 type DarkEmpressCardProps = {
   compact?: boolean;
@@ -54,6 +55,7 @@ export function DarkEmpressCard({
 
   return (
     <View style={[styles.card, compact ? styles.cardCompact : null]}>
+      <Text style={styles.eyebrow}>THE THRONE WATCHES</Text>
       <View style={styles.titleDivider} />
       <Text style={[styles.title, compact ? styles.titleCompact : null]}>
         THE DARK EMPRESS
@@ -130,18 +132,19 @@ export function DarkEmpressCard({
 const styles = StyleSheet.create({
   card: {
     alignItems: 'center',
-    backgroundColor: '#1B1726',
-    borderColor: '#B681FF',
-    borderRadius: 18,
-    borderWidth: 2,
+    backgroundColor: theme.colors.backgroundRaised,
+    borderBottomColor: theme.colors.crimsonDeep,
+    borderBottomWidth: 1,
+    borderTopColor: theme.colors.violetDeep,
+    borderTopWidth: 1,
     marginBottom: 24,
     overflow: 'hidden',
     paddingHorizontal: 16,
     paddingTop: 18,
     paddingBottom: 20,
-    shadowColor: '#A970FF',
-    shadowOpacity: 0.36,
-    shadowRadius: 24,
+    shadowColor: theme.colors.violet,
+    shadowOpacity: 0.22,
+    shadowRadius: 28,
   },
   cardCompact: {
     marginBottom: 14,
@@ -149,9 +152,15 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 16,
   },
+  eyebrow: {
+    color: theme.colors.crimson,
+    fontSize: 9,
+    fontWeight: '900',
+    marginBottom: 7,
+  },
   title: {
-    color: '#F4F1DE',
-    fontSize: 22,
+    color: theme.colors.text,
+    fontSize: 25,
     fontWeight: '900',
     marginBottom: 6,
     textAlign: 'center',
@@ -161,7 +170,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   titleDivider: {
-    backgroundColor: '#A970FF',
+    backgroundColor: theme.colors.violet,
     borderRadius: 999,
     height: 2,
     marginBottom: 10,
@@ -169,7 +178,7 @@ const styles = StyleSheet.create({
     width: 118,
   },
   titleDividerMuted: {
-    backgroundColor: '#5A4B38',
+    backgroundColor: theme.colors.goldDeep,
     borderRadius: 999,
     height: 1,
     marginBottom: 10,
@@ -178,9 +187,9 @@ const styles = StyleSheet.create({
   },
   moodRow: {
     alignItems: 'center',
-    backgroundColor: '#171923',
-    borderColor: '#4E3477',
-    borderRadius: 999,
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.violetDeep,
+    borderRadius: theme.radius.small,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 10,
@@ -194,12 +203,12 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   moodLabel: {
-    color: '#A8B0C7',
+    color: theme.colors.textMuted,
     fontSize: 13,
     fontWeight: '800',
   },
   moodValue: {
-    color: '#F6C453',
+    color: theme.colors.gold,
     fontSize: 14,
     fontWeight: '900',
   },
@@ -215,8 +224,8 @@ const styles = StyleSheet.create({
     width: 246,
   },
   portraitGlow: {
-    backgroundColor: '#A970FF',
-    borderRadius: 158,
+    backgroundColor: theme.colors.violet,
+    borderRadius: theme.radius.large,
     height: 316,
     opacity: 0.24,
     position: 'absolute',
@@ -230,16 +239,16 @@ const styles = StyleSheet.create({
     width: 232,
   },
   portrait: {
-    borderColor: '#A970FF',
-    borderRadius: 146,
-    borderWidth: 3,
-    height: 292,
-    width: 292,
+    borderColor: theme.colors.violetDeep,
+    borderRadius: theme.radius.large,
+    borderWidth: 1,
+    height: 316,
+    width: 316,
   },
   portraitCompact: {
-    borderRadius: 106,
-    height: 212,
-    width: 212,
+    borderRadius: theme.radius.medium,
+    height: 232,
+    width: 232,
   },
   ornamentFrame: {
     bottom: -2,
@@ -254,9 +263,9 @@ const styles = StyleSheet.create({
   },
   demandMeter: {
     alignSelf: 'stretch',
-    backgroundColor: '#171923',
-    borderColor: '#4E3477',
-    borderRadius: 14,
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.violetDeep,
+    borderRadius: theme.radius.medium,
     borderWidth: 1,
     marginTop: 14,
     padding: 12,
@@ -275,47 +284,47 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   demandLabel: {
-    color: '#F4F1DE',
+    color: theme.colors.text,
     fontSize: 15,
     fontWeight: '900',
     textTransform: 'uppercase',
   },
   demandValue: {
-    color: '#D2A6FF',
+    color: theme.colors.violetBright,
     fontSize: 16,
     fontWeight: '900',
   },
   demandTrack: {
-    backgroundColor: '#0F1118',
-    borderColor: '#7A5A2A',
-    borderRadius: 12,
+    backgroundColor: theme.colors.shadow,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.small,
     borderWidth: 1,
     height: 20,
     overflow: 'hidden',
   },
   demandFill: {
-    backgroundColor: '#6F42C1',
-    borderRadius: 12,
+    backgroundColor: theme.colors.violet,
+    borderRadius: theme.radius.small,
     height: '100%',
     minWidth: 3,
     overflow: 'hidden',
     position: 'relative',
   },
   demandFillHighlight: {
-    backgroundColor: '#A970FF',
+    backgroundColor: theme.colors.violetBright,
     height: '45%',
     opacity: 0.8,
     width: '100%',
   },
   demandFillCore: {
-    backgroundColor: '#6F42C1',
+    backgroundColor: theme.colors.violet,
     bottom: 0,
     height: '55%',
     position: 'absolute',
     width: '100%',
   },
   demandSubtitle: {
-    color: '#A8B0C7',
+    color: theme.colors.textMuted,
     fontSize: 12,
     fontWeight: '700',
     marginTop: 8,
