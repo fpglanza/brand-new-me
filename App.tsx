@@ -18,7 +18,9 @@ import { FinalizedBattleCard } from './src/components/FinalizedBattleCard';
 import { FloatingBackButton } from './src/components/FloatingBackButton';
 import { HeroWalkSprite } from './src/components/HeroWalkSprite';
 import { QuestCard, QuestLoadingCard } from './src/components/QuestCard';
+import { RpgSectionHeader } from './src/components/RpgSectionHeader';
 import { WeeklyBattlePreview } from './src/components/WeeklyBattlePreview';
+import { theme } from './src/theme';
 import {
   BONUS_EFFORT_TEMPLATES,
   DEFAULT_HERO_ATTRIBUTES,
@@ -1295,6 +1297,7 @@ export default function App() {
   const homeDate = getHomeDateParts(today);
   const currentLevelXp = getXpProgress(player.totalXp);
   const nextLevelXp = getXpNeededForLevel(player.level);
+  const xpUntilNextLevel = Math.max(nextLevelXp - currentLevelXp, 0);
   const heroXpProgressWidth = heroXpProgressAnim.interpolate({
     inputRange: [0, 100],
     outputRange: ['0%', '100%'],
@@ -1340,8 +1343,7 @@ export default function App() {
   }%` as `${number}%`;
   const kingdomStateLabel = getKingdomStateLabel(kingdomState.prosperity);
   const simulatedDayNumber = getSimulatedDayNumber(simulationStartDate, today);
-  const isCompactMobile =
-    windowDimensions.width <= 480 && windowDimensions.height <= 900;
+  const isCompactMobile = windowDimensions.width <= 480;
   const homeHeroSpriteSize = isCompactMobile ? 118 : 160;
   const heroDetailSpriteSize = isCompactMobile ? 150 : 220;
   const shouldUseCompactPageSpacing =
@@ -1368,6 +1370,7 @@ export default function App() {
           shouldUseCompactPageSpacing ? styles.compactContainer : null,
         ]}
         showsVerticalScrollIndicator={false}
+        style={styles.appScroll}
       >
         <Animated.View
           style={[
@@ -1380,25 +1383,27 @@ export default function App() {
         >
           {activeView === 'home' ? (
           <>
-            <View
-              style={[
-                styles.homeDateBlock,
-                isCompactMobile ? styles.homeDateBlockCompact : null,
-              ]}
-            >
-              <Text style={styles.homeDateWeekday}>{homeDate.weekday}</Text>
-              <Text style={styles.homeDateFull}>{homeDate.fullDate}</Text>
-            </View>
-
             <Pressable
               accessibilityRole="button"
               onPress={() => setActiveView('hero')}
               style={({ pressed }) => [
-                styles.heroSpriteCard,
-                isCompactMobile ? styles.heroSpriteCardCompact : null,
+                styles.homeHeroScene,
+                isCompactMobile ? styles.homeHeroSceneCompact : null,
                 pressed ? styles.homeActionPressed : null,
               ]}
             >
+              <View style={styles.homeHeroAtmosphere} />
+              <View style={styles.homeHeroTopline}>
+                <View>
+                  <Text style={styles.homeDateWeekday}>{homeDate.weekday}</Text>
+                  <Text style={styles.homeDateFull}>{homeDate.fullDate}</Text>
+                </View>
+                <View style={styles.homeLevelSeal}>
+                  <Text style={styles.homeLevelSealLabel}>LEVEL</Text>
+                  <Text style={styles.homeLevelSealValue}>{player.level}</Text>
+                </View>
+              </View>
+              <Text style={styles.homeHeroEyebrow}>THE HERO AWAKENS</Text>
               <Text
                 style={[
                   styles.heroTitle,
@@ -1415,43 +1420,89 @@ export default function App() {
               >
                 {heroPath}
               </Text>
-              <HeroWalkSprite size={homeHeroSpriteSize} />
-              <Text
-                style={[
-                  styles.homeHeroLevel,
-                  isCompactMobile ? styles.homeHeroLevelCompact : null,
-                ]}
-              >
-                Level {player.level}
-              </Text>
-              <Text
-                style={[
-                  styles.homeHeroTotalXp,
-                  isCompactMobile ? styles.homeHeroTotalXpCompact : null,
-                ]}
-              >
-                Total XP: {player.totalXp}
-              </Text>
-              <View style={styles.heroXpTrack}>
+              <View style={styles.homeHeroStage}>
+                <View style={styles.homeHeroAuraOuter} />
+                <View style={styles.homeHeroAuraInner} />
+                <HeroWalkSprite size={homeHeroSpriteSize} />
+                <View style={styles.homeHeroGround} />
+              </View>
+              <View style={styles.homeXpBlock}>
+                <View style={styles.homeXpHeader}>
+                  <Text style={styles.homeXpLabel}>HERO EXPERIENCE</Text>
+                  <Text style={styles.homeXpGainTarget}>
+                    {xpUntilNextLevel} XP TO LEVEL {player.level + 1}
+                  </Text>
+                </View>
+                <View style={styles.heroXpTrack}>
+                  <Animated.View
+                    style={[
+                      styles.heroXpFill,
+                      { width: heroXpProgressWidth },
+                    ]}
+                  >
+                    <View style={styles.progressHighlight} />
+                  </Animated.View>
+                </View>
+                <View style={styles.homeXpMetaRow}>
+                  <Text style={styles.homeHeroXpMeta}>
+                    {currentLevelXp} / {nextLevelXp}
+                  </Text>
+                  <Text style={styles.homeHeroTotalXp}>
+                    TOTAL {player.totalXp}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.homeAttributeStrip}>
+                <View style={styles.homeAttributeItem}>
+                  <Text style={styles.homeAttributeGlyph}>◆</Text>
+                  <Text style={styles.homeAttributeValue}>{heroAttributes.body}</Text>
+                  <Text style={styles.homeAttributeLabel}>BODY</Text>
+                </View>
+                <View style={styles.homeAttributeDivider} />
+                <View style={styles.homeAttributeItem}>
+                  <Text style={styles.homeAttributeGlyph}>✦</Text>
+                  <Text style={styles.homeAttributeValue}>{heroAttributes.mind}</Text>
+                  <Text style={styles.homeAttributeLabel}>MIND</Text>
+                </View>
+                <View style={styles.homeAttributeDivider} />
+                <View style={styles.homeAttributeItem}>
+                  <Text style={styles.homeAttributeGlyph}>▲</Text>
+                  <Text style={styles.homeAttributeValue}>{heroAttributes.purpose}</Text>
+                  <Text style={styles.homeAttributeLabel}>PURPOSE</Text>
+                </View>
+              </View>
+              <Text style={styles.heroSpriteHint}>OPEN CHARACTER SHEET</Text>
+            </Pressable>
+
+            <View
+              style={[
+                styles.dailyProgressCard,
+                isCompactMobile ? styles.dailyProgressCardCompact : null,
+              ]}
+            >
+              <View style={styles.dailyProgressHeader}>
+                <View>
+                  <Text style={styles.dailyProgressEyebrow}>TODAY'S RITUAL</Text>
+                  <Text style={styles.dailyProgressTitle}>DAILY PROGRESS</Text>
+                </View>
+                <Text style={styles.dailyProgressValue}>
+                  {dailyProgress}<Text style={styles.dailyProgressTarget}> / {DAILY_PROGRESS_TARGET}</Text>
+                </Text>
+              </View>
+              <View style={styles.dailyProgressTrack}>
                 <Animated.View
                   style={[
-                    styles.heroXpFill,
-                    { width: heroXpProgressWidth },
+                    styles.dailyProgressFill,
+                    { width: dailyProgressWidth },
                   ]}
-                />
+                >
+                  <View style={styles.progressHighlight} />
+                </Animated.View>
               </View>
-              <Text style={styles.homeHeroXpMeta}>
-                {currentLevelXp} / {nextLevelXp}
+              <Text style={styles.dailyProgressMessage}>
+                {dailyProgressMessage}
               </Text>
-              <Text
-                style={[
-                  styles.heroSpriteHint,
-                  isCompactMobile ? styles.heroSpriteHintCompact : null,
-                ]}
-              >
-                View Hero Progress
-              </Text>
-            </Pressable>
+            </View>
 
             {isReturnQuestActive ? (
               <Pressable
@@ -1497,63 +1548,37 @@ export default function App() {
                   pressed ? styles.homeActionPressed : null,
                 ]}
               >
-                <Text style={styles.primaryButtonText}>START QUEST</Text>
+                <Text style={styles.primaryButtonEyebrow}>THE PATH AWAITS</Text>
+                <Text style={styles.primaryButtonText}>ENTER QUEST LOG</Text>
               </Pressable>
-
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setActiveView('kingdom')}
-                style={({ pressed }) => [
-                  styles.gameButton,
-                  styles.secondaryButton,
-                  isCompactMobile ? styles.homeButtonCompact : null,
-                  pressed ? styles.homeActionPressed : null,
-                ]}
-              >
-                <Text style={styles.secondaryButtonText}>
-                  PROTECT THE KINGDOM
-                </Text>
-              </Pressable>
-
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setActiveView('shadow')}
-                style={({ pressed }) => [
-                  styles.gameButton,
-                  styles.shadowActionButton,
-                  isCompactMobile ? styles.homeButtonCompact : null,
-                  pressed ? styles.homeActionPressed : null,
-                ]}
-              >
-                <Text style={styles.shadowActionButtonText}>
-                  WEEKLY CHALLENGE
-                </Text>
-              </Pressable>
-            </View>
-
-            <View
-              style={[
-                styles.dailyProgressCard,
-                isCompactMobile ? styles.dailyProgressCardCompact : null,
-              ]}
-            >
-              <View style={styles.dailyProgressHeader}>
-                <Text style={styles.dailyProgressTitle}>DAILY PROGRESS</Text>
-                <Text style={styles.dailyProgressValue}>
-                  {dailyProgress} / {DAILY_PROGRESS_TARGET}
-                </Text>
-              </View>
-              <View style={styles.dailyProgressTrack}>
-                <Animated.View
-                  style={[
-                    styles.dailyProgressFill,
-                    { width: dailyProgressWidth },
+              <View style={styles.worldActionRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setActiveView('kingdom')}
+                  style={({ pressed }) => [
+                    styles.worldAction,
+                    styles.kingdomAction,
+                    pressed ? styles.homeActionPressed : null,
                   ]}
-                />
+                >
+                  <Text style={styles.worldActionGlyph}>♜</Text>
+                  <Text style={styles.worldActionLabel}>THE KINGDOM</Text>
+                  <Text style={styles.worldActionValue}>{kingdomStateLabel}</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setActiveView('shadow')}
+                  style={({ pressed }) => [
+                    styles.worldAction,
+                    styles.empressAction,
+                    pressed ? styles.homeActionPressed : null,
+                  ]}
+                >
+                  <Text style={styles.worldActionGlyph}>☾</Text>
+                  <Text style={styles.worldActionLabel}>DARK EMPRESS</Text>
+                  <Text style={styles.worldActionValue}>{weeklyBattle.result}</Text>
+                </Pressable>
               </View>
-              <Text style={styles.dailyProgressMessage}>
-                {dailyProgressMessage}
-              </Text>
             </View>
 
             <View style={styles.debugPanel}>
@@ -1763,18 +1788,12 @@ export default function App() {
           {activeView === 'quests' ? (
           <>
             <View style={styles.section}>
-              <Text style={[styles.sectionTitle, styles.questSectionTitle]}>
-                TODAY'S QUESTS
-              </Text>
-              {debugDateOverride ? (
-                <Text style={[styles.debugDateLabel, styles.questHeaderText]}>
-                  DEV DATE ACTIVE: {debugDateOverride}
-                </Text>
-              ) : null}
-              <Text style={[styles.sectionDate, styles.questSectionDate]}>
-                {today}
-              </Text>
-
+              <RpgSectionHeader
+                eyebrow="QUEST LOG"
+                meta={debugDateOverride ? `DEV DATE · ${debugDateOverride}` : today}
+                subtitle="Every completed duty becomes power."
+                title="TODAY'S QUESTS"
+              />
               <View style={styles.questList}>
                 {isLoading ? <QuestLoadingCard /> : null}
 
@@ -1851,17 +1870,56 @@ export default function App() {
           {activeView === 'kingdom' ? (
           <>
             <View style={styles.section}>
-              <View style={styles.kingdomHeaderBanner}>
-                <View style={styles.kingdomHeaderDivider} />
-                <Text style={[styles.sectionTitle, styles.kingdomHeaderTitle]}>
-                  PROTECT THE KINGDOM
-                </Text>
-                <Text style={styles.kingdomSubtitle}>
-                  Keep the realm from falling into disorder.
-                </Text>
-                <Text style={[styles.sectionDate, styles.kingdomHeaderDate]}>
-                  Week of {weeklyBattle.weekStart}
-                </Text>
+              <RpgSectionHeader
+                eyebrow="THE FALLEN REALM"
+                meta={`WEEK OF ${weeklyBattle.weekStart}`}
+                subtitle="Your discipline restores what neglect surrendered."
+                title="THE KINGDOM"
+              />
+
+              <View style={styles.kingdomCard}>
+                <Image
+                  resizeMode="cover"
+                  source={CASTLE_PLACEHOLDER}
+                  style={styles.kingdomCastleImage}
+                />
+                <View style={styles.kingdomImageShade} />
+                <View style={styles.kingdomIdentity}>
+                  <Text style={styles.kingdomCardTitle}>REALM CONDITION</Text>
+                  <Text style={styles.kingdomStateLabel}>
+                    {kingdomStateLabel}
+                  </Text>
+                </View>
+                <View style={styles.kingdomMetricsPanel}>
+                  <View style={styles.kingdomMetricRow}>
+                    <Text style={styles.kingdomMetricLabel}>PROSPERITY</Text>
+                    <Text style={styles.kingdomMetricValue}>
+                      {kingdomState.prosperity} / {kingdomProsperityMilestone}
+                    </Text>
+                  </View>
+                  <View style={styles.kingdomProsperityTrack}>
+                    <View
+                      style={[
+                        styles.kingdomProsperityFill,
+                        { width: kingdomProsperityPercent },
+                      ]}
+                    />
+                  </View>
+                  <View style={styles.kingdomMetricRow}>
+                    <Text style={styles.kingdomMetricLabel}>LEGACY</Text>
+                    <Text style={styles.kingdomMetricValue}>
+                      {kingdomState.legacy} / {kingdomLegacyMilestone}
+                    </Text>
+                  </View>
+                  <View style={styles.kingdomLegacyTrack}>
+                    <View
+                      style={[
+                        styles.kingdomLegacyFill,
+                        { width: kingdomLegacyPercent },
+                      ]}
+                    />
+                  </View>
+                </View>
               </View>
 
               <View style={styles.kingdomDecreesPanel}>
@@ -1952,76 +2010,18 @@ export default function App() {
                 </Text>
               </View>
 
-              <View style={styles.kingdomCard}>
-                <Image
-                  resizeMode="cover"
-                  source={CASTLE_PLACEHOLDER}
-                  style={styles.kingdomCastleImage}
-                />
-                <Text style={styles.kingdomCardTitle}>THE KINGDOM</Text>
-                <Text style={styles.kingdomStateLabel}>
-                  {kingdomStateLabel}
-                </Text>
-                <View style={styles.kingdomMetricRow}>
-                  <Text style={styles.kingdomMetricLabel}>Prosperity</Text>
-                  <Text style={styles.kingdomMetricValue}>
-                    {kingdomState.prosperity} / {kingdomProsperityMilestone}
-                  </Text>
-                </View>
-                <View style={styles.kingdomProsperityTrack}>
-                  <View
-                    style={[
-                      styles.kingdomProsperityFill,
-                      { width: kingdomProsperityPercent },
-                    ]}
-                  />
-                </View>
-                <View style={styles.kingdomMetricRow}>
-                  <Text style={styles.kingdomMetricLabel}>Legacy</Text>
-                  <Text style={styles.kingdomMetricValue}>
-                    {kingdomState.legacy} / {kingdomLegacyMilestone}
-                  </Text>
-                </View>
-                <View style={styles.kingdomLegacyTrack}>
-                  <View
-                    style={[
-                      styles.kingdomLegacyFill,
-                      { width: kingdomLegacyPercent },
-                    ]}
-                  />
-                </View>
-              </View>
             </View>
           </>
           ) : null}
 
           {activeView === 'hero' ? (
           <>
-            <View
-              style={[
-                styles.heroTitleBlock,
-                isCompactMobile ? styles.heroTitleBlockCompact : null,
-              ]}
-            >
-              <View style={styles.heroHeaderDivider} />
-              <Text
-                style={[
-                  styles.modalTitle,
-                  isCompactMobile ? styles.heroModalTitleCompact : null,
-                ]}
-              >
-                {heroTitle.toUpperCase()}
-              </Text>
-              <Text
-                style={[
-                  styles.heroPath,
-                  isCompactMobile ? styles.heroPathCompact : null,
-                ]}
-              >
-                {heroPath}
-              </Text>
-              <View style={styles.heroHeaderDividerMuted} />
-            </View>
+            <RpgSectionHeader
+              eyebrow="CHARACTER SHEET"
+              meta={`LEVEL ${player.level} · ${player.totalXp} TOTAL XP`}
+              subtitle={heroPath}
+              title={heroTitle.toUpperCase()}
+            />
             <View
               style={[
                 styles.heroDetailSpriteCard,
@@ -2039,16 +2039,25 @@ export default function App() {
                 isCompactMobile ? styles.heroProgressCardCompact : null,
               ]}
             >
-              <Text style={styles.heroProgressTitle}>HERO XP</Text>
-              <View style={styles.heroPanelAccent} />
-              <Text style={styles.heroProgressValue}>Level {player.level}</Text>
+              <View style={styles.heroProgressHeadingRow}>
+                <View>
+                  <Text style={styles.heroProgressTitle}>HERO LEVEL</Text>
+                  <Text style={styles.heroProgressValue}>{player.level}</Text>
+                </View>
+                <View style={styles.heroXpCountdown}>
+                  <Text style={styles.heroXpCountdownValue}>{xpUntilNextLevel}</Text>
+                  <Text style={styles.heroXpCountdownLabel}>XP TO ASCEND</Text>
+                </View>
+              </View>
               <View style={styles.heroXpTrack}>
                 <Animated.View
                   style={[
                     styles.heroXpFill,
                     { width: heroXpProgressWidth },
                   ]}
-                />
+                >
+                  <View style={styles.progressHighlight} />
+                </Animated.View>
               </View>
               <View style={styles.heroXpMetaRow}>
                 <Text style={styles.heroProgressMeta}>
@@ -2066,8 +2075,8 @@ export default function App() {
                 isCompactMobile ? styles.heroProgressCardCompact : null,
               ]}
             >
-              <Text style={styles.heroProgressTitle}>CORE TRAITS</Text>
-              <View style={styles.heroPanelAccent} />
+              <Text style={styles.heroProgressEyebrow}>POWER IS MADE VISIBLE</Text>
+              <Text style={styles.heroProgressTitle}>CORE ATTRIBUTES</Text>
               {HERO_ATTRIBUTE_KEYS.map((attribute) => {
                 const attributeValue = heroAttributes[attribute.key];
                 const attributeMilestone =
@@ -2087,26 +2096,36 @@ export default function App() {
                       isCompactMobile ? styles.statRowCompact : null,
                     ]}
                   >
+                    <View style={styles.statSigil}>
+                      <Text style={styles.statSigilText}>
+                        {attribute.key === 'body'
+                          ? '◆'
+                          : attribute.key === 'mind'
+                            ? '✦'
+                            : '▲'}
+                      </Text>
+                    </View>
                     <View style={styles.statTextBlock}>
                       <Text style={styles.statLabel}>
                         {getHeroAttributeDisplayLabel(attribute.label)}
                       </Text>
-                      <Text style={styles.statValue}>
-                        {attributeValue} / {attributeMilestone}
+                      <Text style={styles.statMilestoneHint}>
+                        {getDistanceToHeroAttributeMilestone(attributeValue)} TO MILESTONE
                       </Text>
-                      {attribute.key === 'body' ? (
-                        <Text style={styles.statMilestoneHint}>
-                          {getDistanceToHeroAttributeMilestone(attributeValue)} TO NEXT MILESTONE
-                        </Text>
-                      ) : null}
                     </View>
-                    <View style={styles.statBarTrack}>
-                      <Animated.View
-                        style={[
-                          styles.statBarFill,
-                          { width: attributeWidth },
-                        ]}
-                      />
+                    <View style={styles.statProgressBlock}>
+                      <View style={styles.statValueRow}>
+                        <Text style={styles.statPowerValue}>{attributeValue}</Text>
+                        <Text style={styles.statValue}> / {attributeMilestone}</Text>
+                      </View>
+                      <View style={styles.statBarTrack}>
+                        <Animated.View
+                          style={[
+                            styles.statBarFill,
+                            { width: attributeWidth },
+                          ]}
+                        />
+                      </View>
                     </View>
                   </View>
                 );
@@ -2131,13 +2150,11 @@ export default function App() {
 
           {activeView === 'chronicles' ? (
           <>
-            <View style={styles.chroniclesHeader}>
-              <View style={styles.chroniclesHeaderDivider} />
-              <Text style={styles.chroniclesTitle}>THE CHRONICLES</Text>
-              <Text style={styles.chroniclesSubtitle}>
-                Records of discipline, judgment, and restoration.
-              </Text>
-            </View>
+            <RpgSectionHeader
+              eyebrow="THE LIVING RECORD"
+              subtitle="Every deed leaves its mark upon the realm."
+              title="THE CHRONICLES"
+            />
 
             <View style={styles.chroniclesCardList}>
               <Pressable
@@ -2958,13 +2975,18 @@ export default function App() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#171923',
+    backgroundColor: theme.colors.background,
     position: 'relative',
   },
+  appScroll: {
+    backgroundColor: theme.colors.background,
+  },
   container: {
+    backgroundColor: theme.colors.background,
     flexGrow: 1,
     paddingHorizontal: 20,
-    paddingVertical: 28,
+    paddingBottom: 36,
+    paddingTop: 20,
   },
   compactContainer: {
     paddingHorizontal: 16,
@@ -2972,7 +2994,213 @@ const styles = StyleSheet.create({
   },
   pageTransition: {
     flex: 1,
+    maxWidth: 760,
+    alignSelf: 'center',
     width: '100%',
+  },
+  homeHeroScene: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.backgroundRaised,
+    borderBottomColor: theme.colors.goldDeep,
+    borderBottomWidth: 1,
+    borderTopColor: theme.colors.violetDeep,
+    borderTopWidth: 1,
+    marginBottom: 14,
+    minHeight: 520,
+    overflow: 'hidden',
+    paddingBottom: 14,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    position: 'relative',
+  },
+  homeHeroSceneCompact: {
+    minHeight: 455,
+    paddingTop: 10,
+  },
+  homeHeroAtmosphere: {
+    backgroundColor: theme.colors.violet,
+    borderRadius: 999,
+    height: 290,
+    opacity: 0.06,
+    position: 'absolute',
+    top: 76,
+    width: 290,
+  },
+  homeHeroTopline: {
+    alignItems: 'flex-start',
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 5,
+  },
+  homeLevelSeal: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.surfaceWarm,
+    borderColor: theme.colors.goldDeep,
+    borderRadius: theme.radius.small,
+    borderWidth: 1,
+    minWidth: 60,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  homeLevelSealLabel: {
+    color: theme.colors.gold,
+    fontSize: 8,
+    fontWeight: '900',
+  },
+  homeLevelSealValue: {
+    color: theme.colors.text,
+    fontSize: 24,
+    fontWeight: '900',
+    lineHeight: 27,
+  },
+  homeHeroEyebrow: {
+    color: theme.colors.violetBright,
+    fontSize: 9,
+    fontWeight: '900',
+    marginBottom: 5,
+  },
+  homeHeroStage: {
+    alignItems: 'center',
+    height: 210,
+    justifyContent: 'center',
+    marginTop: -10,
+    position: 'relative',
+    width: '100%',
+  },
+  homeHeroAuraOuter: {
+    borderColor: theme.colors.violetDeep,
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 190,
+    position: 'absolute',
+    width: 190,
+  },
+  homeHeroAuraInner: {
+    backgroundColor: 'rgba(150, 103, 232, 0.08)',
+    borderColor: 'rgba(217, 177, 95, 0.28)',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 150,
+    position: 'absolute',
+    width: 150,
+  },
+  homeHeroGround: {
+    backgroundColor: theme.colors.goldDeep,
+    bottom: 17,
+    height: 2,
+    opacity: 0.7,
+    position: 'absolute',
+    width: 128,
+  },
+  homeXpBlock: {
+    alignSelf: 'stretch',
+    marginTop: -2,
+  },
+  homeXpHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  homeXpLabel: {
+    color: theme.colors.textMuted,
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  homeXpGainTarget: {
+    color: theme.colors.gold,
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  homeXpMetaRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  homeAttributeStrip: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    borderBottomColor: theme.colors.border,
+    borderBottomWidth: 1,
+    borderTopColor: theme.colors.border,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 8,
+    paddingVertical: 9,
+  },
+  homeAttributeItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  homeAttributeGlyph: {
+    color: theme.colors.violetBright,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  homeAttributeValue: {
+    color: theme.colors.text,
+    fontSize: 20,
+    fontWeight: '900',
+    marginTop: 1,
+  },
+  homeAttributeLabel: {
+    color: theme.colors.textMuted,
+    fontSize: 8,
+    fontWeight: '900',
+    marginTop: 1,
+  },
+  homeAttributeDivider: {
+    backgroundColor: theme.colors.border,
+    height: 28,
+    width: 1,
+  },
+  progressHighlight: {
+    backgroundColor: 'rgba(255, 255, 255, 0.34)',
+    height: 2,
+    left: 1,
+    position: 'absolute',
+    right: 1,
+    top: 1,
+  },
+  worldActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  worldAction: {
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.medium,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 104,
+    padding: 12,
+  },
+  kingdomAction: {
+    borderTopColor: theme.colors.kingdom,
+    borderTopWidth: 2,
+  },
+  empressAction: {
+    borderTopColor: theme.colors.violet,
+    borderTopWidth: 2,
+  },
+  worldActionGlyph: {
+    color: theme.colors.gold,
+    fontSize: 21,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  worldActionLabel: {
+    color: theme.colors.textMuted,
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  worldActionValue: {
+    color: theme.colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+    marginTop: 4,
   },
   modalTitle: {
     color: '#F4F1DE',
@@ -2988,14 +3216,14 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   homeDateWeekday: {
-    color: '#A8B0C7',
-    fontSize: 13,
+    color: theme.colors.gold,
+    fontSize: 10,
     fontWeight: '900',
     textTransform: 'uppercase',
   },
   homeDateFull: {
-    color: '#F4F1DE',
-    fontSize: 14,
+    color: theme.colors.textMuted,
+    fontSize: 11,
     fontWeight: '700',
     marginTop: 2,
   },
@@ -3032,7 +3260,7 @@ const styles = StyleSheet.create({
     width: 164,
   },
   heroTitle: {
-    color: '#F4F1DE',
+    color: theme.colors.text,
     fontSize: 27,
     fontWeight: '900',
     marginBottom: 6,
@@ -3043,10 +3271,10 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   heroPath: {
-    color: '#F6C453',
+    color: theme.colors.gold,
     fontSize: 13,
     fontWeight: '900',
-    marginBottom: 18,
+    marginBottom: 4,
     textTransform: 'uppercase',
   },
   heroPathCompact: {
@@ -3076,14 +3304,14 @@ const styles = StyleSheet.create({
   },
   heroDetailSpriteCard: {
     alignItems: 'center',
-    backgroundColor: '#1E2331',
-    borderColor: '#B681FF',
-    borderRadius: 14,
-    borderWidth: 2,
-    elevation: 3,
+    backgroundColor: theme.colors.backgroundRaised,
+    borderBottomColor: theme.colors.goldDeep,
+    borderBottomWidth: 1,
+    borderTopColor: theme.colors.violetDeep,
+    borderTopWidth: 1,
     justifyContent: 'center',
     marginBottom: 16,
-    minHeight: 280,
+    minHeight: 300,
     overflow: 'hidden',
     padding: 22,
     position: 'relative',
@@ -3097,7 +3325,7 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   heroSpriteAura: {
-    backgroundColor: '#A970FF',
+    backgroundColor: theme.colors.violet,
     borderRadius: 90,
     height: 180,
     opacity: 0.14,
@@ -3106,7 +3334,7 @@ const styles = StyleSheet.create({
     zIndex: 0,
   },
   heroSpritePedestal: {
-    backgroundColor: '#7A5A2A',
+    backgroundColor: theme.colors.goldDeep,
     borderRadius: 999,
     bottom: 16,
     height: 4,
@@ -3116,10 +3344,10 @@ const styles = StyleSheet.create({
     zIndex: 0,
   },
   heroSpriteHint: {
-    color: '#A8B0C7',
-    fontSize: 12,
+    color: theme.colors.textDim,
+    fontSize: 9,
     fontWeight: '800',
-    marginTop: 10,
+    marginTop: 7,
     textTransform: 'uppercase',
   },
   heroSpriteHintCompact: {
@@ -3127,15 +3355,15 @@ const styles = StyleSheet.create({
   },
   returnQuestCard: {
     alignItems: 'center',
-    backgroundColor: '#211C18',
-    borderColor: '#D9A24C',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surfaceWarm,
+    borderColor: theme.colors.goldDeep,
+    borderRadius: theme.radius.medium,
     borderWidth: 1,
     marginBottom: 16,
     overflow: 'hidden',
     paddingHorizontal: 14,
     paddingVertical: 14,
-    shadowColor: '#F6C453',
+    shadowColor: theme.colors.gold,
     shadowOpacity: 0.2,
     shadowRadius: 16,
   },
@@ -3144,41 +3372,41 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   returnQuestEmber: {
-    backgroundColor: '#F6C453',
+    backgroundColor: theme.colors.gold,
     borderRadius: 999,
     height: 3,
     marginBottom: 9,
     width: 80,
   },
   returnQuestEyebrow: {
-    color: '#F6C453',
+    color: theme.colors.goldBright,
     fontSize: 15,
     fontWeight: '900',
     marginBottom: 7,
     textAlign: 'center',
   },
   returnQuestText: {
-    color: '#D7C7A3',
+    color: theme.colors.textMuted,
     fontSize: 13,
     fontWeight: '800',
     lineHeight: 18,
     textAlign: 'center',
   },
   returnQuestDivider: {
-    backgroundColor: '#7A5A2A',
+    backgroundColor: theme.colors.goldDeep,
     borderRadius: 999,
     height: 1,
     marginVertical: 10,
     width: 132,
   },
   returnQuestTitle: {
-    color: '#F4F1DE',
+    color: theme.colors.text,
     fontSize: 13,
     fontWeight: '900',
     marginBottom: 3,
   },
   returnQuestObjective: {
-    color: '#F6C453',
+    color: theme.colors.gold,
     fontSize: 13,
     fontWeight: '900',
   },
@@ -3416,32 +3644,33 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   homeHeroTotalXp: {
-    color: '#F6C453',
-    fontSize: 14,
+    color: theme.colors.textDim,
+    fontSize: 9,
     fontWeight: '900',
-    marginBottom: 12,
   },
   homeHeroTotalXpCompact: {
     marginBottom: 8,
   },
   heroXpTrack: {
     alignSelf: 'stretch',
-    backgroundColor: '#171923',
-    borderColor: '#3E4661',
-    borderRadius: 8,
+    backgroundColor: theme.colors.shadow,
+    borderColor: theme.colors.goldDeep,
+    borderRadius: theme.radius.small,
     borderWidth: 1,
-    height: 14,
-    marginBottom: 8,
+    height: 16,
+    marginBottom: 5,
     overflow: 'hidden',
   },
   heroXpFill: {
-    backgroundColor: '#F6C453',
-    borderRadius: 8,
+    backgroundColor: theme.colors.gold,
+    borderRadius: theme.radius.small,
     height: '100%',
+    overflow: 'hidden',
+    position: 'relative',
   },
   homeHeroXpMeta: {
-    color: '#A8B0C7',
-    fontSize: 13,
+    color: theme.colors.textMuted,
+    fontSize: 10,
     fontWeight: '800',
     textAlign: 'right',
   },
@@ -3506,42 +3735,35 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   chroniclesCardList: {
-    gap: 9,
+    gap: 10,
   },
   chronicleNavCard: {
     alignItems: 'center',
-    backgroundColor: '#1A1D29',
-    borderColor: '#4B5471',
-    borderRadius: 9,
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.medium,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 11,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
+    minHeight: 84,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
   },
   chronicleHeroCard: {
-    backgroundColor: '#211E19',
-    borderColor: '#7B6438',
-    borderLeftColor: '#F6C453',
-    borderLeftWidth: 4,
+    borderLeftColor: theme.colors.gold,
+    borderLeftWidth: 3,
   },
   chronicleQuestCard: {
-    backgroundColor: '#1D211C',
-    borderColor: '#5C5637',
-    borderLeftColor: '#D9A24C',
-    borderLeftWidth: 4,
+    borderLeftColor: theme.colors.green,
+    borderLeftWidth: 3,
   },
   chronicleEmpressCard: {
-    backgroundColor: '#1A1320',
-    borderColor: '#65406D',
-    borderLeftColor: '#B26C8B',
-    borderLeftWidth: 4,
+    borderLeftColor: theme.colors.crimson,
+    borderLeftWidth: 3,
   },
   chronicleKingdomCard: {
-    backgroundColor: '#17211D',
-    borderColor: '#587155',
-    borderLeftColor: '#D9C08A',
-    borderLeftWidth: 4,
+    borderLeftColor: theme.colors.kingdom,
+    borderLeftWidth: 3,
   },
   chronicleGlyph: {
     fontSize: 25,
@@ -3550,37 +3772,37 @@ const styles = StyleSheet.create({
     width: 32,
   },
   chronicleHeroGlyph: {
-    color: '#F6C453',
+    color: theme.colors.gold,
   },
   chronicleQuestGlyph: {
-    color: '#D9A24C',
+    color: theme.colors.green,
   },
   chronicleEmpressGlyph: {
-    color: '#D888A2',
+    color: theme.colors.crimson,
   },
   chronicleKingdomGlyph: {
-    color: '#C8D58D',
+    color: theme.colors.kingdom,
   },
   chronicleNavTextBlock: {
     flex: 1,
   },
   chronicleNavTitle: {
-    color: '#F4F1DE',
+    color: theme.colors.text,
     fontSize: 14,
     fontWeight: '900',
     marginBottom: 4,
   },
   chronicleNavFlavor: {
-    color: '#A8B0C7',
+    color: theme.colors.textMuted,
     fontSize: 12,
     fontWeight: '700',
     lineHeight: 16,
   },
   chronicleDetailCard: {
     alignItems: 'stretch',
-    backgroundColor: '#1A1D29',
-    borderColor: '#4B5471',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.large,
     borderWidth: 1,
     marginBottom: 18,
     paddingHorizontal: 14,
@@ -3588,45 +3810,45 @@ const styles = StyleSheet.create({
     paddingBottom: 15,
   },
   chronicleHeroDetail: {
-    backgroundColor: '#1E1B18',
-    borderColor: '#6E5833',
-    borderTopColor: '#F6C453',
+    backgroundColor: theme.colors.surfaceWarm,
+    borderColor: theme.colors.goldDeep,
+    borderTopColor: theme.colors.gold,
     borderTopWidth: 3,
   },
   chronicleQuestDetail: {
-    backgroundColor: '#1C1F1A',
-    borderColor: '#5A4B38',
-    borderTopColor: '#D9A24C',
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderTopColor: theme.colors.green,
     borderTopWidth: 3,
   },
   chronicleEmpressDetail: {
-    backgroundColor: '#19121F',
-    borderColor: '#5E3A67',
-    borderTopColor: '#B26C8B',
+    backgroundColor: '#160F1A',
+    borderColor: theme.colors.crimsonDeep,
+    borderTopColor: theme.colors.crimson,
     borderTopWidth: 3,
   },
   chronicleKingdomDetail: {
-    backgroundColor: '#151F1B',
-    borderColor: '#526D4C',
-    borderTopColor: '#D9C08A',
+    backgroundColor: '#101812',
+    borderColor: '#34472F',
+    borderTopColor: theme.colors.kingdom,
     borderTopWidth: 3,
   },
   chronicleDetailEyebrow: {
-    color: '#D9C08A',
+    color: theme.colors.gold,
     fontSize: 11,
     fontWeight: '900',
     marginBottom: 6,
     textAlign: 'center',
   },
   chronicleDetailTitle: {
-    color: '#F4F1DE',
+    color: theme.colors.text,
     fontSize: 22,
     fontWeight: '900',
     marginBottom: 6,
     textAlign: 'center',
   },
   chronicleDetailFlavor: {
-    color: '#A8B0C7',
+    color: theme.colors.textMuted,
     fontSize: 13,
     fontWeight: '700',
     lineHeight: 18,
@@ -3656,15 +3878,15 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   chronicleStatCard: {
-    backgroundColor: 'rgba(244, 241, 222, 0.035)',
-    borderColor: 'rgba(217, 192, 138, 0.14)',
-    borderRadius: 8,
+    backgroundColor: theme.colors.backgroundRaised,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.medium,
     borderTopWidth: 1,
     paddingHorizontal: 11,
     paddingVertical: 10,
   },
   chronicleStatLabel: {
-    color: '#A8B0C7',
+    color: theme.colors.textMuted,
     fontSize: 9,
     fontWeight: '900',
     includeFontPadding: false,
@@ -3673,7 +3895,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   chronicleStatValue: {
-    color: '#F4F1DE',
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: '900',
     lineHeight: 19,
@@ -3819,9 +4041,9 @@ const styles = StyleSheet.create({
     marginBottom: 1,
   },
   empressJudgmentCard: {
-    backgroundColor: '#160F1C',
-    borderColor: '#5E3A67',
-    borderRadius: 9,
+    backgroundColor: '#120D17',
+    borderColor: theme.colors.crimsonDeep,
+    borderRadius: theme.radius.medium,
     borderTopWidth: 1,
     overflow: 'hidden',
     padding: 10,
@@ -3954,9 +4176,9 @@ const styles = StyleSheet.create({
     marginBottom: 1,
   },
   kingdomRecordCard: {
-    backgroundColor: '#121D19',
-    borderColor: '#526D4C',
-    borderRadius: 9,
+    backgroundColor: '#0F1711',
+    borderColor: '#34472F',
+    borderRadius: theme.radius.medium,
     borderTopWidth: 1,
     padding: 10,
   },
@@ -4078,9 +4300,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   heroChronicleDayPanel: {
-    backgroundColor: '#171815',
-    borderColor: '#5A4B38',
-    borderRadius: 9,
+    backgroundColor: theme.colors.backgroundRaised,
+    borderColor: theme.colors.goldDeep,
+    borderRadius: theme.radius.medium,
     borderTopWidth: 1,
     overflow: 'hidden',
   },
@@ -4157,8 +4379,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   homeActions: {
-    gap: 12,
-    marginBottom: 18,
+    gap: 10,
+    marginBottom: 16,
   },
   homeActionsCompact: {
     gap: 8,
@@ -4170,39 +4392,33 @@ const styles = StyleSheet.create({
   },
   gameButton: {
     alignItems: 'center',
-    borderBottomWidth: 4,
-    borderRadius: 12,
+    borderRadius: theme.radius.medium,
     borderTopWidth: 1,
-    elevation: 4,
     justifyContent: 'center',
     overflow: 'hidden',
-    paddingVertical: 15,
-    shadowColor: '#000000',
-    shadowOffset: { height: 4, width: 0 },
-    shadowOpacity: 0.24,
-    shadowRadius: 6,
+    paddingVertical: 14,
   },
   primaryButton: {
-    backgroundColor: '#D9A93B',
-    borderBottomWidth: 4,
-    borderColor: '#F6C453',
-    borderTopColor: '#FFE08A',
-    borderLeftColor: '#8E641E',
-    borderRightColor: '#8E641E',
-    borderBottomColor: '#6D4915',
-    borderWidth: 2,
+    backgroundColor: theme.colors.gold,
+    borderBottomColor: theme.colors.goldDeep,
+    borderBottomWidth: 3,
+    borderColor: theme.colors.goldBright,
+    borderWidth: 1,
   },
   homeButtonCompact: {
     paddingVertical: 12,
   },
   primaryButtonText: {
-    color: '#171923',
+    color: theme.colors.background,
     fontSize: 16,
     fontWeight: '900',
     letterSpacing: 0,
-    textShadowColor: 'rgba(244, 241, 222, 0.35)',
-    textShadowOffset: { height: 1, width: 0 },
-    textShadowRadius: 1,
+  },
+  primaryButtonEyebrow: {
+    color: theme.colors.goldDeep,
+    fontSize: 8,
+    fontWeight: '900',
+    marginBottom: 2,
   },
   secondaryButton: {
     backgroundColor: '#2D3244',
@@ -4237,9 +4453,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   heroProgressCard: {
-    backgroundColor: '#202535',
-    borderColor: '#4B5471',
-    borderRadius: 14,
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.large,
     borderWidth: 1,
     marginBottom: 14,
     padding: 16,
@@ -4249,8 +4465,8 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   heroProgressTitle: {
-    color: '#D9C08A',
-    fontSize: 13,
+    color: theme.colors.text,
+    fontSize: 15,
     fontWeight: '900',
     marginBottom: 6,
   },
@@ -4267,19 +4483,44 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   heroProgressValue: {
-    color: '#F4F1DE',
-    fontSize: 22,
+    color: theme.colors.goldBright,
+    fontSize: 38,
     fontWeight: '900',
     marginBottom: 4,
   },
+  heroProgressEyebrow: {
+    color: theme.colors.violetBright,
+    fontSize: 8,
+    fontWeight: '900',
+    marginBottom: 3,
+  },
+  heroProgressHeadingRow: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  heroXpCountdown: {
+    alignItems: 'flex-end',
+  },
+  heroXpCountdownValue: {
+    color: theme.colors.gold,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  heroXpCountdownLabel: {
+    color: theme.colors.textDim,
+    fontSize: 8,
+    fontWeight: '900',
+  },
   heroProgressMeta: {
-    color: '#F6C453',
-    fontSize: 15,
+    color: theme.colors.gold,
+    fontSize: 12,
     fontWeight: '800',
   },
   heroProgressMetaRight: {
-    color: '#F6C453',
-    fontSize: 15,
+    color: theme.colors.textMuted,
+    fontSize: 11,
     fontWeight: '800',
     textAlign: 'right',
   },
@@ -4290,12 +4531,12 @@ const styles = StyleSheet.create({
   },
   statRow: {
     alignItems: 'center',
-    borderTopColor: '#3E4661',
+    borderTopColor: theme.colors.border,
     borderTopWidth: 1,
     flexDirection: 'row',
     gap: 12,
     justifyContent: 'space-between',
-    paddingVertical: 10,
+    paddingVertical: 13,
   },
   statRowCompact: {
     paddingVertical: 7,
@@ -4303,34 +4544,63 @@ const styles = StyleSheet.create({
   statTextBlock: {
     flex: 1,
   },
+  statSigil: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.violetDeep,
+    borderColor: theme.colors.violet,
+    borderRadius: theme.radius.small,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: 'center',
+    width: 38,
+  },
+  statSigilText: {
+    color: theme.colors.violetBright,
+    fontSize: 15,
+    fontWeight: '900',
+  },
   statLabel: {
-    color: '#F4F1DE',
+    color: theme.colors.text,
     fontSize: 13,
     fontWeight: '900',
   },
   statValue: {
-    color: '#A8B0C7',
-    fontSize: 13,
+    color: theme.colors.textDim,
+    fontSize: 10,
     fontWeight: '700',
   },
   statMilestoneHint: {
-    color: '#F6C453',
-    fontSize: 10,
+    color: theme.colors.gold,
+    fontSize: 8,
     fontWeight: '900',
     marginTop: 3,
   },
+  statProgressBlock: {
+    alignItems: 'flex-end',
+    width: 128,
+  },
+  statValueRow: {
+    alignItems: 'baseline',
+    flexDirection: 'row',
+    marginBottom: 5,
+  },
+  statPowerValue: {
+    color: theme.colors.text,
+    fontSize: 22,
+    fontWeight: '900',
+  },
   statBarTrack: {
-    backgroundColor: '#171923',
-    borderColor: '#4B5471',
-    borderRadius: 8,
+    backgroundColor: theme.colors.shadow,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.small,
     borderWidth: 1,
     height: 12,
     overflow: 'hidden',
-    width: 120,
+    width: 128,
   },
   statBarFill: {
-    backgroundColor: '#55D187',
-    borderRadius: 8,
+    backgroundColor: theme.colors.violet,
+    borderRadius: theme.radius.small,
     height: '100%',
   },
   section: {
@@ -4402,33 +4672,45 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   kingdomCard: {
-    backgroundColor: '#242938',
-    borderColor: '#3E4661',
-    borderRadius: 14,
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.large,
     borderWidth: 1,
     marginBottom: 18,
     overflow: 'hidden',
-    padding: 14,
+    position: 'relative',
   },
   kingdomCastleImage: {
     alignSelf: 'stretch',
-    borderRadius: 10,
-    height: 160,
-    marginBottom: 14,
-    overflow: 'hidden',
+    height: 220,
     width: '100%',
   },
+  kingdomImageShade: {
+    backgroundColor: 'rgba(9, 11, 18, 0.46)',
+    height: 220,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  kingdomIdentity: {
+    left: 16,
+    position: 'absolute',
+    top: 154,
+  },
+  kingdomMetricsPanel: {
+    padding: 14,
+  },
   kingdomCardTitle: {
-    color: '#F4F1DE',
-    fontSize: 18,
+    color: theme.colors.textMuted,
+    fontSize: 9,
     fontWeight: '900',
     marginBottom: 4,
   },
   kingdomStateLabel: {
-    color: '#F6C453',
-    fontSize: 14,
+    color: theme.colors.text,
+    fontSize: 22,
     fontWeight: '900',
-    marginBottom: 14,
   },
   kingdomMetricRow: {
     alignItems: 'center',
@@ -4437,46 +4719,46 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   kingdomMetricLabel: {
-    color: '#A8B0C7',
-    fontSize: 13,
+    color: theme.colors.textMuted,
+    fontSize: 10,
     fontWeight: '800',
   },
   kingdomMetricValue: {
-    color: '#F4F1DE',
+    color: theme.colors.text,
     fontSize: 14,
     fontWeight: '900',
   },
   kingdomProsperityTrack: {
-    backgroundColor: '#171923',
-    borderColor: '#3E4661',
-    borderRadius: 8,
+    backgroundColor: theme.colors.shadow,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.small,
     borderWidth: 1,
     height: 14,
     marginBottom: 14,
     overflow: 'hidden',
   },
   kingdomProsperityFill: {
-    backgroundColor: '#55D187',
-    borderRadius: 8,
+    backgroundColor: theme.colors.kingdom,
+    borderRadius: theme.radius.small,
     height: '100%',
   },
   kingdomLegacyTrack: {
-    backgroundColor: '#171923',
-    borderColor: '#3E4661',
-    borderRadius: 8,
+    backgroundColor: theme.colors.shadow,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.small,
     borderWidth: 1,
     height: 14,
     overflow: 'hidden',
   },
   kingdomLegacyFill: {
-    backgroundColor: '#A970FF',
-    borderRadius: 8,
+    backgroundColor: theme.colors.violet,
+    borderRadius: theme.radius.small,
     height: '100%',
   },
   kingdomDecreesPanel: {
-    backgroundColor: '#17131F',
-    borderColor: '#B4813A',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surfaceWarm,
+    borderColor: theme.colors.goldDeep,
+    borderRadius: theme.radius.large,
     borderWidth: 1,
     marginBottom: 14,
     overflow: 'hidden',
@@ -4489,7 +4771,7 @@ const styles = StyleSheet.create({
   },
   kingdomDecreesSeal: {
     alignSelf: 'center',
-    backgroundColor: '#B4813A',
+    backgroundColor: theme.colors.gold,
     borderRadius: 999,
     height: 2,
     marginBottom: 8,
@@ -4497,7 +4779,7 @@ const styles = StyleSheet.create({
     width: 70,
   },
   kingdomDecreesTitle: {
-    color: '#F4F1DE',
+    color: theme.colors.text,
     fontSize: 17,
     fontWeight: '900',
     marginBottom: 3,
@@ -4517,23 +4799,23 @@ const styles = StyleSheet.create({
   },
   kingdomDecreeCard: {
     alignItems: 'center',
-    backgroundColor: '#20202B',
-    borderColor: '#947345',
-    borderRadius: 8,
+    backgroundColor: theme.colors.backgroundRaised,
+    borderColor: theme.colors.goldDeep,
+    borderRadius: theme.radius.medium,
     borderWidth: 1.25,
     minHeight: 138,
     paddingHorizontal: 5,
     paddingVertical: 8,
   },
   kingdomDecreeCardCompleted: {
-    borderColor: '#55D187',
-    backgroundColor: '#1C2A27',
+    borderColor: theme.colors.green,
+    backgroundColor: '#101B18',
   },
   kingdomDecreeCardDisabled: {
     opacity: 0.42,
   },
   kingdomDecreeGlyph: {
-    color: '#F6C453',
+    color: theme.colors.gold,
     fontSize: 27,
     fontWeight: '900',
     lineHeight: 30,
@@ -4541,7 +4823,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   kingdomDecreeType: {
-    color: '#F6C453',
+    color: theme.colors.gold,
     fontSize: 13,
     fontWeight: '900',
     marginBottom: 6,
@@ -4640,11 +4922,13 @@ const styles = StyleSheet.create({
     color: '#55D187',
   },
   dailyProgressCard: {
-    backgroundColor: '#242938',
-    borderColor: '#3E4661',
-    borderRadius: 14,
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.medium,
     borderWidth: 1,
-    marginBottom: 16,
+    borderLeftColor: theme.colors.green,
+    borderLeftWidth: 3,
+    marginBottom: 14,
     padding: 14,
   },
   dailyProgressCardCompact: {
@@ -4658,50 +4942,62 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   dailyProgressTitle: {
-    color: '#F4F1DE',
-    fontSize: 13,
+    color: theme.colors.text,
+    fontSize: 14,
     fontWeight: '900',
+  },
+  dailyProgressEyebrow: {
+    color: theme.colors.green,
+    fontSize: 8,
+    fontWeight: '900',
+    marginBottom: 2,
   },
   dailyProgressValue: {
-    color: '#F6C453',
-    fontSize: 18,
+    color: theme.colors.text,
+    fontSize: 24,
     fontWeight: '900',
   },
+  dailyProgressTarget: {
+    color: theme.colors.textDim,
+    fontSize: 12,
+  },
   dailyProgressTrack: {
-    backgroundColor: '#171923',
-    borderColor: '#3E4661',
-    borderRadius: 8,
+    backgroundColor: theme.colors.shadow,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.small,
     borderWidth: 1,
     height: 14,
     overflow: 'hidden',
   },
   dailyProgressFill: {
-    backgroundColor: '#55D187',
-    borderRadius: 8,
+    backgroundColor: theme.colors.green,
+    borderRadius: theme.radius.small,
     height: '100%',
+    overflow: 'hidden',
+    position: 'relative',
   },
   dailyProgressMessage: {
-    color: '#A8B0C7',
-    fontSize: 13,
+    color: theme.colors.textMuted,
+    fontSize: 11,
     fontWeight: '700',
     marginTop: 10,
   },
   xpToast: {
     alignSelf: 'center',
-    backgroundColor: '#242938',
-    borderColor: '#F6C453',
-    borderRadius: 999,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderColor: theme.colors.gold,
+    borderRadius: theme.radius.small,
     borderWidth: 1,
     bottom: 26,
     paddingHorizontal: 20,
     paddingVertical: 11,
     position: 'absolute',
-    shadowColor: '#F6C453',
+    shadowColor: theme.colors.gold,
     shadowOpacity: 0.28,
     shadowRadius: 12,
   },
   xpToastText: {
-    color: '#F6C453',
+    color: theme.colors.goldBright,
     fontSize: 18,
     fontWeight: '900',
   },
@@ -4718,23 +5014,23 @@ const styles = StyleSheet.create({
   },
   trainingCompleteCard: {
     alignItems: 'center',
-    backgroundColor: '#171923',
-    borderColor: '#7D6840',
-    borderRadius: 8,
+    backgroundColor: theme.colors.backgroundRaised,
+    borderColor: theme.colors.goldDeep,
+    borderRadius: theme.radius.large,
     borderWidth: 1,
     maxWidth: 390,
     overflow: 'hidden',
     paddingBottom: 18,
     paddingHorizontal: 16,
     paddingTop: 10,
-    shadowColor: '#F6C453',
+    shadowColor: theme.colors.gold,
     shadowOffset: { height: 0, width: 0 },
     shadowOpacity: 0.42,
     shadowRadius: 30,
     width: '100%',
   },
   trainingImpactFlash: {
-    backgroundColor: '#F6C453',
+    backgroundColor: theme.colors.gold,
     bottom: 0,
     left: 0,
     position: 'absolute',
@@ -4742,14 +5038,14 @@ const styles = StyleSheet.create({
     top: 0,
   },
   trainingCompleteHeaderGlow: {
-    backgroundColor: '#F6C453',
+    backgroundColor: theme.colors.gold,
     height: 2,
     marginBottom: 8,
     opacity: 0.9,
     width: 150,
   },
   trainingCompleteEyebrow: {
-    color: '#A970FF',
+    color: theme.colors.violetBright,
     fontSize: 10,
     fontWeight: '900',
     marginBottom: 4,
@@ -4786,7 +5082,7 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   trainingCompleteTitle: {
-    color: '#F4F1DE',
+    color: theme.colors.text,
     fontSize: 26,
     fontWeight: '900',
     textAlign: 'center',
@@ -4812,7 +5108,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   trainingRewardLabel: {
-    color: '#A8B0C7',
+    color: theme.colors.textMuted,
     fontSize: 10,
     fontWeight: '900',
   },
@@ -4829,17 +5125,17 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   trainingStatArrow: {
-    color: '#A970FF',
+    color: theme.colors.violetBright,
     fontSize: 18,
     fontWeight: '900',
   },
   trainingStatCurrent: {
-    color: '#F4F1DE',
+    color: theme.colors.text,
     fontSize: 30,
     fontWeight: '900',
   },
   trainingBodyReward: {
-    color: '#55D187',
+    color: theme.colors.green,
     fontSize: 14,
     fontWeight: '900',
   },
@@ -4854,7 +5150,7 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   trainingXpReward: {
-    color: '#F6C453',
+    color: theme.colors.goldBright,
     fontSize: 18,
     fontWeight: '900',
   },
@@ -4868,7 +5164,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   trainingXpFill: {
-    backgroundColor: '#F6C453',
+    backgroundColor: theme.colors.gold,
     height: '100%',
   },
   trainingXpShine: {
@@ -4960,7 +5256,7 @@ const styles = StyleSheet.create({
   },
   levelUpOverlay: {
     alignItems: 'center',
-    backgroundColor: 'rgba(23, 25, 35, 0.72)',
+    backgroundColor: 'rgba(2, 3, 8, 0.88)',
     bottom: 0,
     justifyContent: 'center',
     left: 0,
@@ -4971,51 +5267,51 @@ const styles = StyleSheet.create({
   },
   levelUpCard: {
     alignItems: 'center',
-    backgroundColor: '#242938',
-    borderColor: '#A970FF',
-    borderRadius: 18,
+    backgroundColor: theme.colors.backgroundRaised,
+    borderColor: theme.colors.violet,
+    borderRadius: theme.radius.large,
     borderWidth: 1,
     paddingHorizontal: 28,
     paddingVertical: 26,
-    shadowColor: '#A970FF',
+    shadowColor: theme.colors.violet,
     shadowOpacity: 0.35,
     shadowRadius: 22,
     width: '100%',
   },
   levelUpTitle: {
-    color: '#F6C453',
-    fontSize: 28,
+    color: theme.colors.goldBright,
+    fontSize: 31,
     fontWeight: '900',
     marginBottom: 16,
     textAlign: 'center',
   },
   levelUpLevelText: {
-    color: '#A8B0C7',
+    color: theme.colors.textMuted,
     fontSize: 18,
     fontWeight: '900',
     textAlign: 'center',
   },
   levelUpArrow: {
-    color: '#A970FF',
+    color: theme.colors.violetBright,
     fontSize: 24,
     fontWeight: '900',
     marginVertical: 8,
   },
   levelUpNewLevelText: {
-    color: '#F4F1DE',
-    fontSize: 24,
+    color: theme.colors.text,
+    fontSize: 30,
     fontWeight: '900',
     marginBottom: 14,
     textAlign: 'center',
   },
   levelUpTitleMeta: {
-    color: '#A8B0C7',
+    color: theme.colors.textMuted,
     fontSize: 14,
     fontWeight: '800',
     textAlign: 'center',
   },
   levelUpNewTitleMeta: {
-    color: '#F6C453',
+    color: theme.colors.gold,
     fontSize: 15,
     fontWeight: '900',
     marginTop: 6,
@@ -5023,9 +5319,9 @@ const styles = StyleSheet.create({
   },
   levelUpStatsBox: {
     alignSelf: 'stretch',
-    backgroundColor: '#171923',
-    borderColor: '#3E4661',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.medium,
     borderWidth: 1,
     marginTop: 16,
     padding: 12,
@@ -5045,32 +5341,32 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   questList: {
-    gap: 14,
+    gap: 22,
   },
   bonusEffortCard: {
-    backgroundColor: '#242938',
-    borderColor: '#3E4661',
-    borderRadius: 14,
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.medium,
     borderWidth: 1,
     marginTop: 18,
     padding: 14,
   },
   bonusEffortTitle: {
-    color: '#F6C453',
-    fontSize: 13,
+    color: theme.colors.gold,
+    fontSize: 11,
     fontWeight: '900',
     marginBottom: 10,
   },
   bonusEffortButton: {
     alignItems: 'center',
-    backgroundColor: '#171923',
-    borderColor: '#A970FF',
-    borderRadius: 10,
+    backgroundColor: theme.colors.backgroundRaised,
+    borderColor: theme.colors.violetDeep,
+    borderRadius: theme.radius.small,
     borderWidth: 1,
     paddingVertical: 12,
   },
   bonusEffortButtonText: {
-    color: '#F4F1DE',
+    color: theme.colors.text,
     fontSize: 14,
     fontWeight: '900',
   },
@@ -5115,34 +5411,21 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   questGroupCard: {
-    backgroundColor: '#202535',
-    borderColor: '#5A4B38',
-    borderRadius: 10,
-    borderWidth: 1,
-    overflow: 'hidden',
-    paddingHorizontal: 10,
-    paddingTop: 0,
-    paddingBottom: 10,
+    backgroundColor: 'transparent',
   },
   questGroupTitle: {
     alignSelf: 'stretch',
-    backgroundColor: '#171923',
-    borderBottomColor: '#5A4B38',
-    borderColor: '#30384F',
-    borderRadius: 0,
-    borderWidth: 1,
-    color: '#D9C08A',
-    fontSize: 13,
+    borderBottomColor: theme.colors.goldDeep,
+    borderBottomWidth: 1,
+    color: theme.colors.gold,
+    fontSize: 11,
     fontWeight: '900',
-    marginBottom: 10,
-    marginHorizontal: -10,
-    overflow: 'hidden',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    textAlign: 'center',
+    marginBottom: 9,
+    paddingBottom: 7,
+    textAlign: 'left',
   },
   questGroupList: {
-    gap: 10,
+    gap: 8,
   },
   debugPanel: {
     borderColor: '#3E4661',

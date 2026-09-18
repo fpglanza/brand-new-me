@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { Quest } from '../types/game';
+import { theme } from '../theme';
 
 type QuestCardProps = {
   quest: Quest;
@@ -27,6 +28,27 @@ function getDisplayQuestTitle(quest: Quest) {
   return quest.title.replace(CARRIED_OVER_TITLE_SUFFIX, '');
 }
 
+function getCategoryGlyph(category: string) {
+  switch (category) {
+    case 'Body':
+      return '◆';
+    case 'Mind':
+      return '✦';
+    case 'Purpose':
+      return '▲';
+    case 'Appearance':
+      return '◇';
+    case 'Fuel':
+      return '✚';
+    case 'Recovery':
+      return '☾';
+    case 'Stewardship':
+      return '♜';
+    default:
+      return '·';
+  }
+}
+
 export function QuestCard({
   quest,
   onToggle,
@@ -38,6 +60,7 @@ export function QuestCard({
   const previousCompletedRef = useRef(quest.completed);
   const isBonusQuest = quest.source === 'bonus';
   const isCarriedOver = isCarriedOverQuest(quest);
+  const isTrainingQuest = quest.templateId.startsWith('workout-');
   const displayTitle = getDisplayQuestTitle(quest);
 
   useEffect(() => {
@@ -96,6 +119,7 @@ export function QuestCard({
       onPress={() => onToggle(quest)}
       style={[
         styles.questCard,
+        isTrainingQuest ? styles.trainingQuest : null,
         quest.completed ? styles.questCompleted : styles.questIncomplete,
         { transform: [{ scale: pulseScale }] },
       ]}
@@ -107,14 +131,22 @@ export function QuestCard({
           { opacity: completionFlashOpacity },
         ]}
       />
-      <View
-        style={[
-          styles.questAccent,
-          quest.completed
-            ? styles.questAccentCompleted
-            : styles.questAccentIncomplete,
-        ]}
-      />
+      <View style={styles.questSigilColumn}>
+        <View
+          style={[
+            styles.questSigil,
+            isTrainingQuest ? styles.trainingSigil : null,
+            quest.completed ? styles.questSigilCompleted : null,
+          ]}
+        >
+          <Text style={styles.questSigilText}>
+            {getCategoryGlyph(quest.category)}
+          </Text>
+        </View>
+        {isTrainingQuest ? (
+          <Text style={styles.trainingLabel}>TRAINING</Text>
+        ) : null}
+      </View>
       <View style={styles.questBody}>
         {showCategoryLabel || isBonusQuest || isCarriedOver ? (
           <View style={styles.questMetaRow}>
@@ -131,7 +163,10 @@ export function QuestCard({
         ) : null}
         <Text style={styles.questTitle}>{displayTitle}</Text>
         <Text style={styles.questDescription}>{quest.description}</Text>
-        <Text style={styles.questReward}>+{quest.xp} XP</Text>
+        <View style={styles.questRewardRow}>
+          <Text style={styles.questRewardLabel}>REWARD</Text>
+          <Text style={styles.questReward}>+{quest.xp} XP</Text>
+        </View>
       </View>
       <Animated.View
         style={[
@@ -149,7 +184,7 @@ export function QuestCard({
 export function QuestLoadingCard() {
   return (
     <View style={styles.questCard}>
-      <View style={[styles.questAccent, styles.questAccentIncomplete]} />
+      <View style={styles.questSigilColumn} />
       <View style={styles.questBody}>
         <Text style={styles.questTitle}>Loading quests...</Text>
       </View>
@@ -160,24 +195,27 @@ export function QuestLoadingCard() {
 const styles = StyleSheet.create({
   questCard: {
     alignItems: 'center',
-    backgroundColor: '#1C2130',
-    borderColor: '#4B5471',
-    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.medium,
     borderWidth: 1,
-    elevation: 1,
     flexDirection: 'row',
-    minHeight: 74,
+    minHeight: 92,
     overflow: 'hidden',
-    paddingRight: 16,
-    shadowColor: '#000000',
-    shadowOffset: { height: 2, width: 0 },
-    shadowOpacity: 0.16,
-    shadowRadius: 3,
+    paddingRight: 13,
+  },
+  trainingQuest: {
+    backgroundColor: '#151522',
+    borderColor: theme.colors.violetDeep,
+    borderLeftColor: theme.colors.violet,
+    borderLeftWidth: 3,
+    minHeight: 108,
   },
   questCompleted: {
-    borderColor: '#55D187',
-    shadowColor: '#55D187',
-    shadowOpacity: 0.28,
+    backgroundColor: '#101B18',
+    borderColor: theme.colors.greenDeep,
+    shadowColor: theme.colors.green,
+    shadowOpacity: 0.18,
     shadowRadius: 8,
   },
   completionFlash: {
@@ -189,26 +227,52 @@ const styles = StyleSheet.create({
     top: 0,
   },
   questIncomplete: {
-    borderColor: '#4B5471',
+    borderColor: theme.colors.border,
   },
-  questAccent: {
+  questSigilColumn: {
+    alignItems: 'center',
     alignSelf: 'stretch',
-    marginRight: 14,
-    width: 7,
+    justifyContent: 'center',
+    marginRight: 12,
+    minWidth: 58,
+    paddingLeft: 8,
   },
-  questAccentCompleted: {
-    backgroundColor: '#55D187',
+  questSigil: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.backgroundRaised,
+    borderColor: theme.colors.goldDeep,
+    borderRadius: theme.radius.small,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: 'center',
+    width: 38,
   },
-  questAccentIncomplete: {
-    backgroundColor: '#7A5A2A',
+  trainingSigil: {
+    backgroundColor: theme.colors.violetDeep,
+    borderColor: theme.colors.violet,
+  },
+  questSigilCompleted: {
+    backgroundColor: theme.colors.greenDeep,
+    borderColor: theme.colors.green,
+  },
+  questSigilText: {
+    color: theme.colors.goldBright,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  trainingLabel: {
+    color: theme.colors.violetBright,
+    fontSize: 7,
+    fontWeight: '900',
+    marginTop: 5,
   },
   questBody: {
     flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 13,
   },
   questCategory: {
-    color: '#A970FF',
-    fontSize: 11,
+    color: theme.colors.violetBright,
+    fontSize: 9,
     fontWeight: '900',
   },
   questMetaRow: {
@@ -218,59 +282,69 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   questSourceBadge: {
-    backgroundColor: '#F6C453',
-    borderRadius: 6,
-    color: '#171923',
-    fontSize: 10,
+    backgroundColor: theme.colors.gold,
+    borderRadius: theme.radius.small,
+    color: theme.colors.background,
+    fontSize: 8,
     fontWeight: '900',
     overflow: 'hidden',
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
   questCarriedOverBadge: {
-    backgroundColor: '#4A2B17',
-    borderRadius: 6,
-    color: '#F2A65A',
-    fontSize: 10,
+    backgroundColor: '#382617',
+    borderRadius: theme.radius.small,
+    color: '#E4A866',
+    fontSize: 8,
     fontWeight: '900',
     overflow: 'hidden',
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
   questTitle: {
-    color: '#F4F1DE',
-    fontSize: 16,
-    fontWeight: '800',
+    color: theme.colors.text,
+    fontSize: 15,
+    fontWeight: '900',
   },
   questDescription: {
-    color: '#A8B0C7',
-    fontSize: 12,
-    fontWeight: '500',
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
     lineHeight: 16,
     marginTop: 5,
   },
+  questRewardRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 5,
+    marginTop: 7,
+  },
+  questRewardLabel: {
+    color: theme.colors.textDim,
+    fontSize: 8,
+    fontWeight: '900',
+  },
   questReward: {
-    color: '#F6C453',
-    fontSize: 14,
-    fontWeight: '800',
-    marginTop: 5,
+    color: theme.colors.gold,
+    fontSize: 12,
+    fontWeight: '900',
   },
   questStatus: {
     alignItems: 'center',
-    borderColor: '#3E4661',
-    borderRadius: 16,
-    borderWidth: 2,
-    height: 32,
+    borderColor: theme.colors.borderStrong,
+    borderRadius: theme.radius.small,
+    borderWidth: 1,
+    height: 30,
     justifyContent: 'center',
-    width: 32,
+    width: 30,
   },
   questStatusCompleted: {
-    backgroundColor: '#55D187',
-    borderColor: '#55D187',
+    backgroundColor: theme.colors.green,
+    borderColor: theme.colors.green,
   },
   questStatusText: {
-    color: '#171923',
-    fontSize: 19,
+    color: theme.colors.background,
+    fontSize: 17,
     fontWeight: '900',
     lineHeight: 21,
   },
