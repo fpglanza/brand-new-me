@@ -33,6 +33,8 @@ export function QuestCard({
   showCategoryLabel = true,
 }: QuestCardProps) {
   const pulseScale = useRef(new Animated.Value(1)).current;
+  const completionFlashOpacity = useRef(new Animated.Value(0)).current;
+  const checkScale = useRef(new Animated.Value(1)).current;
   const previousCompletedRef = useRef(quest.completed);
   const isBonusQuest = quest.source === 'bonus';
   const isCarriedOver = isCarriedOverQuest(quest);
@@ -41,15 +43,41 @@ export function QuestCard({
   useEffect(() => {
     if (!previousCompletedRef.current && quest.completed) {
       pulseScale.stopAnimation();
+      completionFlashOpacity.stopAnimation();
+      checkScale.stopAnimation();
       pulseScale.setValue(1);
-      Animated.sequence([
-        Animated.timing(pulseScale, {
-          duration: 120,
-          toValue: 1.025,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseScale, {
-          duration: 150,
+      completionFlashOpacity.setValue(0);
+      checkScale.setValue(0.65);
+      Animated.parallel([
+        Animated.sequence([
+          Animated.spring(pulseScale, {
+            friction: 5,
+            tension: 150,
+            toValue: 1.035,
+            useNativeDriver: true,
+          }),
+          Animated.spring(pulseScale, {
+            friction: 7,
+            tension: 90,
+            toValue: 1,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.timing(completionFlashOpacity, {
+            duration: 90,
+            toValue: 0.28,
+            useNativeDriver: true,
+          }),
+          Animated.timing(completionFlashOpacity, {
+            duration: 420,
+            toValue: 0,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.spring(checkScale, {
+          friction: 5,
+          tension: 180,
           toValue: 1,
           useNativeDriver: true,
         }),
@@ -57,7 +85,7 @@ export function QuestCard({
     }
 
     previousCompletedRef.current = quest.completed;
-  }, [pulseScale, quest.completed]);
+  }, [checkScale, completionFlashOpacity, pulseScale, quest.completed]);
 
   return (
     <AnimatedPressable
@@ -72,6 +100,13 @@ export function QuestCard({
         { transform: [{ scale: pulseScale }] },
       ]}
     >
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.completionFlash,
+          { opacity: completionFlashOpacity },
+        ]}
+      />
       <View
         style={[
           styles.questAccent,
@@ -98,14 +133,15 @@ export function QuestCard({
         <Text style={styles.questDescription}>{quest.description}</Text>
         <Text style={styles.questReward}>+{quest.xp} XP</Text>
       </View>
-      <View
+      <Animated.View
         style={[
           styles.questStatus,
           quest.completed && styles.questStatusCompleted,
+          quest.completed ? { transform: [{ scale: checkScale }] } : null,
         ]}
       >
         {quest.completed ? <Text style={styles.questStatusText}>✓</Text> : null}
-      </View>
+      </Animated.View>
     </AnimatedPressable>
   );
 }
@@ -140,6 +176,17 @@ const styles = StyleSheet.create({
   },
   questCompleted: {
     borderColor: '#55D187',
+    shadowColor: '#55D187',
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+  },
+  completionFlash: {
+    backgroundColor: '#F6C453',
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
   },
   questIncomplete: {
     borderColor: '#4B5471',

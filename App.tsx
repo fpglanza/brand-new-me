@@ -140,6 +140,7 @@ const HERO_XP_ENTRY_ANIMATION_MS = 1000;
 const DAILY_PROGRESS_ENTRY_ANIMATION_MS = 800;
 const HERO_ATTRIBUTE_ENTRY_ANIMATION_MS = 850;
 const LEVEL_UP_OVERLAY_DURATION_MS = 2600;
+const TRAINING_COMPLETE_DURATION_MS = 3600;
 const PAGE_TRANSITION_DURATION_MS = 180;
 const PAGE_TRANSITION_START_OPACITY = 0.86;
 const PAGE_TRANSITION_START_TRANSLATE_Y = 6;
@@ -168,10 +169,19 @@ type LevelUpEvent = {
 };
 
 type TrainingCompleteEvent = {
+  bodyAfter: number;
+  bodyBefore: number;
   bodyGain: number;
   bodyMilestone: number | null;
+  nextLevel: number;
+  previousLevel: number;
   returnBonusXp: number;
+  totalXpGain: number;
   xpGain: number;
+  xpProgressAfter: number;
+  xpProgressBefore: number;
+  xpTargetAfter: number;
+  xpTargetBefore: number;
 };
 
 type AttributeGainDisplay = {
@@ -647,6 +657,11 @@ export default function App() {
   const trainingOverlayOpacity = useRef(new Animated.Value(0)).current;
   const trainingOverlayScale = useRef(new Animated.Value(0.96)).current;
   const trainingSpriteTranslateY = useRef(new Animated.Value(0)).current;
+  const trainingImpactOpacity = useRef(new Animated.Value(0)).current;
+  const trainingAuraScale = useRef(new Animated.Value(0.72)).current;
+  const trainingRewardOpacity = useRef(new Animated.Value(0)).current;
+  const trainingRewardTranslateY = useRef(new Animated.Value(16)).current;
+  const trainingXpProgress = useRef(new Animated.Value(0)).current;
   const pageTransitionOpacity = useRef(
     new Animated.Value(PAGE_TRANSITION_START_OPACITY),
   ).current;
@@ -931,9 +946,21 @@ export default function App() {
     trainingOverlayOpacity.stopAnimation();
     trainingOverlayScale.stopAnimation();
     trainingSpriteTranslateY.stopAnimation();
+    trainingImpactOpacity.stopAnimation();
+    trainingAuraScale.stopAnimation();
+    trainingRewardOpacity.stopAnimation();
+    trainingRewardTranslateY.stopAnimation();
+    trainingXpProgress.stopAnimation();
     trainingOverlayOpacity.setValue(0);
-    trainingOverlayScale.setValue(0.96);
-    trainingSpriteTranslateY.setValue(0);
+    trainingOverlayScale.setValue(0.92);
+    trainingSpriteTranslateY.setValue(18);
+    trainingImpactOpacity.setValue(0);
+    trainingAuraScale.setValue(0.72);
+    trainingRewardOpacity.setValue(0);
+    trainingRewardTranslateY.setValue(16);
+    trainingXpProgress.setValue(
+      (event.xpProgressBefore / event.xpTargetBefore) * 100,
+    );
 
     Animated.parallel([
       Animated.sequence([
@@ -950,31 +977,93 @@ export default function App() {
             useNativeDriver: true,
           }),
         ]),
-        Animated.delay(980),
+        Animated.delay(2940),
         Animated.timing(trainingOverlayOpacity, {
-          duration: 260,
+          duration: 300,
           toValue: 0,
           useNativeDriver: true,
         }),
       ]),
       Animated.sequence([
         Animated.timing(trainingSpriteTranslateY, {
-          duration: 180,
-          toValue: -10,
+          duration: 360,
+          toValue: -8,
           useNativeDriver: true,
         }),
         Animated.spring(trainingSpriteTranslateY, {
-          friction: 5,
-          tension: 80,
+          friction: 6,
+          tension: 72,
+          toValue: -2,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.sequence([
+        Animated.timing(trainingImpactOpacity, {
+          duration: 90,
+          toValue: 0.72,
+          useNativeDriver: true,
+        }),
+        Animated.timing(trainingImpactOpacity, {
+          duration: 420,
           toValue: 0,
           useNativeDriver: true,
         }),
+      ]),
+      Animated.spring(trainingAuraScale, {
+        friction: 7,
+        tension: 48,
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+      Animated.sequence([
+        Animated.delay(520),
+        Animated.parallel([
+          Animated.timing(trainingRewardOpacity, {
+            duration: 260,
+            toValue: 1,
+            useNativeDriver: true,
+          }),
+          Animated.spring(trainingRewardTranslateY, {
+            friction: 7,
+            tension: 80,
+            toValue: 0,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]),
+      Animated.sequence([
+        Animated.delay(1050),
+        event.nextLevel > event.previousLevel
+          ? Animated.sequence([
+              Animated.timing(trainingXpProgress, {
+                duration: 520,
+                toValue: 100,
+                useNativeDriver: false,
+              }),
+              Animated.timing(trainingXpProgress, {
+                duration: 1,
+                toValue: 0,
+                useNativeDriver: false,
+              }),
+              Animated.timing(trainingXpProgress, {
+                duration: 520,
+                toValue:
+                  (event.xpProgressAfter / event.xpTargetAfter) * 100,
+                useNativeDriver: false,
+              }),
+            ])
+          : Animated.timing(trainingXpProgress, {
+              duration: 900,
+              toValue:
+                (event.xpProgressAfter / event.xpTargetAfter) * 100,
+              useNativeDriver: false,
+            }),
       ]),
     ]).start();
 
     trainingCompleteTimeoutRef.current = setTimeout(() => {
       setTrainingCompleteEvent(null);
-    }, 1450);
+    }, TRAINING_COMPLETE_DURATION_MS);
   };
 
   const showQuestCompletionFeedback = (
@@ -984,10 +1073,11 @@ export default function App() {
     attributeGains: AttributeGainDisplay[],
     trainingEvent?: TrainingCompleteEvent,
   ) => {
-    showXpToast(xpAmount);
     if (trainingEvent) {
       showTrainingCompleteOverlay(trainingEvent);
+      return;
     }
+    showXpToast(xpAmount);
     showLevelUpOverlay(previousPlayer.level, nextPlayer.level, attributeGains);
   };
 
@@ -1037,10 +1127,20 @@ export default function App() {
           ),
           completionResult.trainingCompleted
             ? {
+                bodyAfter: gameState.heroAttributes.body,
+                bodyBefore: previousHeroAttributes.body,
                 bodyGain,
                 bodyMilestone: completionResult.bodyAscendedMilestone,
+                nextLevel: gameState.player.level,
+                previousLevel: previousPlayer.level,
                 returnBonusXp: completionResult.returnBonusXpAwarded,
+                totalXpGain:
+                  gameState.player.totalXp - previousPlayer.totalXp,
                 xpGain: quest.xp,
+                xpProgressAfter: getXpProgress(gameState.player.totalXp),
+                xpProgressBefore: getXpProgress(previousPlayer.totalXp),
+                xpTargetAfter: getXpNeededForLevel(gameState.player.level),
+                xpTargetBefore: getXpNeededForLevel(previousPlayer.level),
               }
             : undefined,
         );
@@ -1125,10 +1225,20 @@ export default function App() {
           ),
           completionResult.trainingCompleted
             ? {
+                bodyAfter: gameState.heroAttributes.body,
+                bodyBefore: previousHeroAttributes.body,
                 bodyGain,
                 bodyMilestone: completionResult.bodyAscendedMilestone,
+                nextLevel: gameState.player.level,
+                previousLevel: previousPlayer.level,
                 returnBonusXp: completionResult.returnBonusXpAwarded,
+                totalXpGain:
+                  gameState.player.totalXp - previousPlayer.totalXp,
                 xpGain: questTemplate.xp,
+                xpProgressAfter: getXpProgress(gameState.player.totalXp),
+                xpProgressBefore: getXpProgress(previousPlayer.totalXp),
+                xpTargetAfter: getXpNeededForLevel(gameState.player.level),
+                xpTargetBefore: getXpNeededForLevel(previousPlayer.level),
               }
             : undefined,
         );
@@ -1186,6 +1296,10 @@ export default function App() {
   const currentLevelXp = getXpProgress(player.totalXp);
   const nextLevelXp = getXpNeededForLevel(player.level);
   const heroXpProgressWidth = heroXpProgressAnim.interpolate({
+    inputRange: [0, 100],
+    outputRange: ['0%', '100%'],
+  });
+  const trainingXpProgressWidth = trainingXpProgress.interpolate({
     inputRange: [0, 100],
     outputRange: ['0%', '100%'],
   });
@@ -2669,6 +2783,12 @@ export default function App() {
         >
           <Animated.View
             style={[
+              styles.trainingImpactFlash,
+              { opacity: trainingImpactOpacity },
+            ]}
+          />
+          <Animated.View
+            style={[
               styles.trainingCompleteCard,
               {
                 transform: [{ scale: trainingOverlayScale }],
@@ -2676,43 +2796,117 @@ export default function App() {
             ]}
           >
             <View style={styles.trainingCompleteHeaderGlow} />
+            <Text style={styles.trainingCompleteEyebrow}>QUEST RESOLVED</Text>
             <Animated.View
               style={[
-                styles.trainingCompleteSprite,
+                styles.trainingHeroStage,
                 {
-                  transform: [{ translateY: trainingSpriteTranslateY }],
+                  transform: [{ scale: trainingAuraScale }],
                 },
               ]}
             >
-              <HeroWalkSprite size={86} />
+              <View style={styles.trainingAuraOuter} />
+              <View style={styles.trainingAuraInner} />
+              <Animated.View
+                style={[
+                  styles.trainingCompleteSprite,
+                  {
+                    transform: [{ translateY: trainingSpriteTranslateY }],
+                  },
+                ]}
+              >
+                <HeroWalkSprite size={112} />
+              </Animated.View>
             </Animated.View>
             <Text style={styles.trainingCompleteTitle}>
               TRAINING COMPLETE
             </Text>
-            <View style={styles.trainingRewardRow}>
-              <Text style={styles.trainingBodyReward}>
-                BODY +{trainingCompleteEvent.bodyGain}
-              </Text>
-              <Text style={styles.trainingXpReward}>
-                +{trainingCompleteEvent.xpGain} XP
-              </Text>
-            </View>
-            {trainingCompleteEvent.returnBonusXp > 0 ? (
-              <Text style={styles.trainingReturnBonus}>
-                RETURN BONUS +{trainingCompleteEvent.returnBonusXp} XP
-              </Text>
-            ) : null}
-            {trainingCompleteEvent.bodyMilestone ? (
-              <View style={styles.bodyAscendedBox}>
-                <Text style={styles.bodyAscendedTitle}>BODY ASCENDED</Text>
-                <Text style={styles.bodyAscendedValue}>
-                  {trainingCompleteEvent.bodyMilestone}
-                </Text>
-                <Text style={styles.bodyAscendedFlavor}>
-                  Physical discipline has taken root.
+            <Text style={styles.trainingCompleteSubhead}>
+              YOUR EFFORT BECAME POWER
+            </Text>
+            <Animated.View
+              style={[
+                styles.trainingRewardSequence,
+                {
+                  opacity: trainingRewardOpacity,
+                  transform: [
+                    { translateY: trainingRewardTranslateY },
+                  ],
+                },
+              ]}
+            >
+              <View style={styles.trainingPrimaryReward}>
+                <Text style={styles.trainingRewardLabel}>BODY INCREASED</Text>
+                <View style={styles.trainingStatTransition}>
+                  <Text style={styles.trainingStatPrevious}>
+                    {trainingCompleteEvent.bodyBefore}
+                  </Text>
+                  <Text style={styles.trainingStatArrow}>→</Text>
+                  <Text style={styles.trainingStatCurrent}>
+                    {trainingCompleteEvent.bodyAfter}
+                  </Text>
+                </View>
+                <Text style={styles.trainingBodyReward}>
+                  +{trainingCompleteEvent.bodyGain} BODY
                 </Text>
               </View>
-            ) : null}
+              <View style={styles.trainingXpPanel}>
+                <View style={styles.trainingXpHeader}>
+                  <Text style={styles.trainingRewardLabel}>
+                    HERO XP · LEVEL {trainingCompleteEvent.nextLevel}
+                  </Text>
+                  <Text style={styles.trainingXpReward}>
+                    +{trainingCompleteEvent.totalXpGain} XP
+                  </Text>
+                </View>
+                <View style={styles.trainingXpTrack}>
+                  <Animated.View
+                    style={[
+                      styles.trainingXpFill,
+                      { width: trainingXpProgressWidth },
+                    ]}
+                  />
+                  <View style={styles.trainingXpShine} />
+                </View>
+                <View style={styles.trainingXpMetaRow}>
+                  <Text style={styles.trainingXpSource}>
+                    TRAINING +{trainingCompleteEvent.xpGain}
+                  </Text>
+                  <Text style={styles.trainingXpMeta}>
+                    {trainingCompleteEvent.xpProgressAfter} /{' '}
+                    {trainingCompleteEvent.xpTargetAfter}
+                  </Text>
+                </View>
+              </View>
+              {trainingCompleteEvent.returnBonusXp > 0 ? (
+                <View style={styles.trainingBonusBanner}>
+                  <Text style={styles.trainingReturnBonus}>
+                    THE RETURN · +{trainingCompleteEvent.returnBonusXp} XP
+                  </Text>
+                </View>
+              ) : null}
+              {trainingCompleteEvent.nextLevel >
+              trainingCompleteEvent.previousLevel ? (
+                <View style={styles.trainingLevelUpBanner}>
+                  <Text style={styles.trainingLevelUpLabel}>LEVEL UP</Text>
+                  <Text style={styles.trainingLevelUpValue}>
+                    {trainingCompleteEvent.previousLevel} →{' '}
+                    {trainingCompleteEvent.nextLevel}
+                  </Text>
+                </View>
+              ) : null}
+              {trainingCompleteEvent.bodyMilestone ? (
+                <View style={styles.bodyAscendedBox}>
+                  <Text style={styles.bodyAscendedTitle}>BODY ASCENDED</Text>
+                  <Text style={styles.bodyAscendedValue}>
+                    {trainingCompleteEvent.bodyMilestone}
+                  </Text>
+                  <Text style={styles.bodyAscendedFlavor}>
+                    Physical discipline has taken root.
+                  </Text>
+                </View>
+              ) : null}
+            </Animated.View>
           </Animated.View>
         </Animated.View>
       ) : null}
@@ -4513,7 +4707,7 @@ const styles = StyleSheet.create({
   },
   trainingCompleteOverlay: {
     alignItems: 'center',
-    backgroundColor: 'rgba(23, 25, 35, 0.46)',
+    backgroundColor: 'rgba(9, 10, 17, 0.84)',
     bottom: 0,
     justifyContent: 'center',
     left: 0,
@@ -4524,76 +4718,222 @@ const styles = StyleSheet.create({
   },
   trainingCompleteCard: {
     alignItems: 'center',
-    backgroundColor: '#211C18',
-    borderColor: '#F6C453',
-    borderRadius: 14,
+    backgroundColor: '#171923',
+    borderColor: '#7D6840',
+    borderRadius: 8,
     borderWidth: 1,
     maxWidth: 390,
     overflow: 'hidden',
-    paddingHorizontal: 18,
-    paddingTop: 12,
-    paddingBottom: 16,
+    paddingBottom: 18,
+    paddingHorizontal: 16,
+    paddingTop: 10,
     shadowColor: '#F6C453',
-    shadowOpacity: 0.36,
-    shadowRadius: 22,
+    shadowOffset: { height: 0, width: 0 },
+    shadowOpacity: 0.42,
+    shadowRadius: 30,
     width: '100%',
+  },
+  trainingImpactFlash: {
+    backgroundColor: '#F6C453',
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
   },
   trainingCompleteHeaderGlow: {
     backgroundColor: '#F6C453',
+    height: 2,
+    marginBottom: 8,
+    opacity: 0.9,
+    width: 150,
+  },
+  trainingCompleteEyebrow: {
+    color: '#A970FF',
+    fontSize: 10,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  trainingHeroStage: {
+    alignItems: 'center',
+    height: 126,
+    justifyContent: 'center',
+    marginBottom: 2,
+    position: 'relative',
+    width: 190,
+  },
+  trainingAuraOuter: {
+    backgroundColor: 'rgba(169, 112, 255, 0.07)',
+    borderColor: 'rgba(169, 112, 255, 0.42)',
     borderRadius: 999,
-    height: 3,
-    marginBottom: 7,
-    opacity: 0.95,
-    width: 112,
+    borderWidth: 1,
+    height: 118,
+    position: 'absolute',
+    width: 164,
+  },
+  trainingAuraInner: {
+    backgroundColor: 'rgba(246, 196, 83, 0.06)',
+    borderColor: 'rgba(246, 196, 83, 0.5)',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 92,
+    position: 'absolute',
+    width: 128,
   },
   trainingCompleteSprite: {
     alignItems: 'center',
-    backgroundColor: 'rgba(85, 209, 135, 0.08)',
-    borderColor: 'rgba(85, 209, 135, 0.28)',
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 72,
     justifyContent: 'center',
-    marginBottom: 7,
     overflow: 'visible',
-    width: 100,
   },
   trainingCompleteTitle: {
     color: '#F4F1DE',
-    fontSize: 22,
+    fontSize: 26,
     fontWeight: '900',
-    marginBottom: 10,
     textAlign: 'center',
   },
-  trainingRewardRow: {
+  trainingCompleteSubhead: {
+    color: '#D9C08A',
+    fontSize: 10,
+    fontWeight: '900',
+    marginBottom: 10,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  trainingRewardSequence: {
+    alignSelf: 'stretch',
+    gap: 8,
+  },
+  trainingPrimaryReward: {
+    alignItems: 'center',
+    borderBottomColor: '#3E4661',
+    borderBottomWidth: 1,
+    borderTopColor: '#3E4661',
+    borderTopWidth: 1,
+    paddingVertical: 8,
+  },
+  trainingRewardLabel: {
+    color: '#A8B0C7',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  trainingStatTransition: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 10,
     justifyContent: 'center',
-    marginBottom: 8,
+    marginTop: 1,
+  },
+  trainingStatPrevious: {
+    color: '#6F778E',
+    fontSize: 19,
+    fontWeight: '900',
+  },
+  trainingStatArrow: {
+    color: '#A970FF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  trainingStatCurrent: {
+    color: '#F4F1DE',
+    fontSize: 30,
+    fontWeight: '900',
   },
   trainingBodyReward: {
     color: '#55D187',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '900',
+  },
+  trainingXpPanel: {
+    alignSelf: 'stretch',
+    paddingHorizontal: 2,
+  },
+  trainingXpHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 5,
   },
   trainingXpReward: {
     color: '#F6C453',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '900',
   },
-  trainingReturnBonus: {
+  trainingXpTrack: {
+    backgroundColor: '#0E1018',
+    borderColor: '#7D6840',
+    borderRadius: 4,
+    borderWidth: 1,
+    height: 17,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  trainingXpFill: {
+    backgroundColor: '#F6C453',
+    height: '100%',
+  },
+  trainingXpShine: {
+    backgroundColor: 'rgba(244, 241, 222, 0.34)',
+    height: 2,
+    left: 1,
+    position: 'absolute',
+    right: 1,
+    top: 1,
+  },
+  trainingXpMeta: {
+    color: '#A8B0C7',
+    fontSize: 10,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  trainingXpMetaRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 3,
+  },
+  trainingXpSource: {
     color: '#D9C08A',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  trainingBonusBanner: {
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(169, 112, 255, 0.1)',
+    borderLeftColor: '#A970FF',
+    borderLeftWidth: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  trainingReturnBonus: {
+    color: '#C8A3FF',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  trainingLevelUpBanner: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(246, 196, 83, 0.09)',
+    borderColor: '#F6C453',
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  trainingLevelUpLabel: {
+    color: '#F6C453',
     fontSize: 13,
     fontWeight: '900',
-    marginBottom: 8,
-    textAlign: 'center',
+  },
+  trainingLevelUpValue: {
+    color: '#F4F1DE',
+    fontSize: 18,
+    fontWeight: '900',
   },
   bodyAscendedBox: {
     alignSelf: 'stretch',
     backgroundColor: 'rgba(85, 209, 135, 0.08)',
     borderColor: 'rgba(85, 209, 135, 0.32)',
-    borderRadius: 8,
     borderTopWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 9,
