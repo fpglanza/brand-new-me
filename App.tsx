@@ -2,9 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import {
   Animated,
+  BackHandler,
   Image,
+  Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -12,6 +13,11 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import {
+  initialWindowMetrics,
+  SafeAreaProvider,
+  SafeAreaView,
+} from 'react-native-safe-area-context';
 
 import { DarkEmpressCard } from './src/components/DarkEmpressCard';
 import { FinalizedBattleCard } from './src/components/FinalizedBattleCard';
@@ -727,6 +733,46 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        if (trainingCompleteEvent) {
+          setTrainingCompleteEvent(null);
+          return true;
+        }
+
+        if (levelUpEvent) {
+          setLevelUpEvent(null);
+          return true;
+        }
+
+        if (isBonusPickerOpen) {
+          setIsBonusPickerOpen(false);
+          return true;
+        }
+
+        if (activeView !== 'home') {
+          setActiveView(getBackView(activeView));
+          return true;
+        }
+
+        return false;
+      },
+    );
+
+    return () => subscription.remove();
+  }, [
+    activeView,
+    isBonusPickerOpen,
+    levelUpEvent,
+    trainingCompleteEvent,
+  ]);
+
+  useEffect(() => {
     const previousPlayer = previousPlayerRef.current;
     const nextPercent = getHeroXpProgressPercentValue(player);
 
@@ -1362,16 +1408,17 @@ export default function App() {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" />
-      <ScrollView
-        contentContainerStyle={[
-          styles.container,
-          shouldUseCompactPageSpacing ? styles.compactContainer : null,
-        ]}
-        showsVerticalScrollIndicator={false}
-        style={styles.appScroll}
-      >
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="light-content" />
+        <ScrollView
+          contentContainerStyle={[
+            styles.container,
+            shouldUseCompactPageSpacing ? styles.compactContainer : null,
+          ]}
+          showsVerticalScrollIndicator={false}
+          style={styles.appScroll}
+        >
         <Animated.View
           style={[
             styles.pageTransition,
@@ -2767,7 +2814,7 @@ export default function App() {
           </>
           ) : null}
         </Animated.View>
-      </ScrollView>
+        </ScrollView>
 
       {activeView !== 'home' ? (
         <FloatingBackButton onPress={() => setActiveView(getBackView(activeView))} />
@@ -2968,7 +3015,8 @@ export default function App() {
           </View>
         </Animated.View>
       ) : null}
-    </SafeAreaView>
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 

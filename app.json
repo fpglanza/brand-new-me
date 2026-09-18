@@ -1,20 +1,22 @@
 {
   "expo": {
-    "name": "brand-new-me",
+    "name": "Brand New Me",
     "slug": "brand-new-me",
     "version": "1.0.0",
     "backgroundColor": "#090B12",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true
     },
     "android": {
+      "package": "com.brandnewme.app",
+      "versionCode": 1,
+      "backgroundColor": "#090B12",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#090B12",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
@@ -24,7 +26,29 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#090B12",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 220
+        }
+      ],
+      [
+        "expo-navigation-bar",
+        {
+          "style": "dark"
+        }
+      ],
       "expo-sqlite"
-    ]
+    ],
+    "extra": {
+      "expo-navigation-bar": {
+        "style": "dark"
+      },
+      "eas": {
+        "projectId": "f83eac5d-07f1-405c-bc72-1f29399a9119"
+      }
+    }
   }
 }
