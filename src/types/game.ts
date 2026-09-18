@@ -14,6 +14,17 @@ export type HeroAttributes = {
   purpose: number;
 };
 
+export type ReturnState = {
+  id: string;
+  active: boolean;
+  bonusAwarded: boolean;
+  bonusReversed: boolean;
+  cycleStartedAfterDate: string | null;
+  eligibleSince: string | null;
+  fulfilledAt: string | null;
+  fulfilledQuestId: string | null;
+};
+
 export type Quest = {
   id: string;
   templateId: string;
@@ -36,7 +47,15 @@ export type QuestTemplate = {
   xp: number;
 };
 
-export type HeroChronicleDeed = Quest;
+export type HeroChronicleReturnEvent = {
+  id: string;
+  date: string;
+  title: string;
+  description: string;
+  kind: 'return';
+};
+
+export type HeroChronicleDeed = Quest | HeroChronicleReturnEvent;
 
 export type QuestChronicleDayStatus =
   | 'Missed'
@@ -176,6 +195,7 @@ export type GameState = {
   player: Player;
   heroAttributes: HeroAttributes;
   quests: Quest[];
+  returnState: ReturnState;
   shadow: Shadow;
   today: string;
   weeklyBattle: WeeklyBattlePreview;

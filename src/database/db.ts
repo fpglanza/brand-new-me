@@ -17,6 +17,7 @@ import type {
   Quest,
   QuestChronicleDayStatus,
   QuestChronicleSummary,
+  ReturnState,
   QuestSource,
   QuestTemplate,
   Shadow,
@@ -113,12 +114,42 @@ type KingdomDecreeRow = {
   completed_at: string | null;
 };
 
+type ReturnStateRow = {
+  id: string;
+  active: number;
+  bonus_awarded: number;
+  bonus_reversed: number;
+  cycle_started_after_date: string | null;
+  eligible_since: string | null;
+  fulfilled_at: string | null;
+  fulfilled_quest_id: string | null;
+};
+
+type HeroChronicleEventRow = {
+  id: string;
+  event_type: 'return';
+  date: string;
+  title: string;
+  description: string;
+  created_at: string;
+};
+
+export type QuestCompletionResult = {
+  bodyAscendedMilestone: number | null;
+  returnBonusXpAwarded: number;
+  returnBonusXpReversed: number;
+  trainingCompleted: boolean;
+};
+
 const BASE_LEVEL_XP = 1000;
 const LEVEL_XP_STEP = 150;
+export const RETURN_BONUS_XP = 100;
+const RETURN_ABSENCE_DAYS = 7;
 
 const DATABASE_NAME = 'brand-new-me.db';
 const PLAYER_ID = 'player';
 const HERO_ATTRIBUTES_ID = 'hero';
+const RETURN_STATE_ID = 'return';
 const KINGDOM_STATE_ID = 'kingdom';
 const SHADOW_ID = 'shadow-steward';
 const ONE_WEEK_IN_MS = 7 * 24 * 60 * 60 * 1000;
@@ -154,6 +185,17 @@ export const DEFAULT_KINGDOM_STATE: KingdomState = {
   id: KINGDOM_STATE_ID,
   prosperity: 0,
   legacy: 0,
+};
+
+export const DEFAULT_RETURN_STATE: ReturnState = {
+  id: RETURN_STATE_ID,
+  active: false,
+  bonusAwarded: false,
+  bonusReversed: false,
+  cycleStartedAfterDate: null,
+  eligibleSince: null,
+  fulfilledAt: null,
+  fulfilledQuestId: null,
 };
 
 const DAILY_BASELINE_QUEST_TEMPLATES: QuestTemplate[] = [
@@ -611,6 +653,7 @@ export async function loadGameState(
   await createKingdomChecklistForWeekIfNeeded(db, today);
   await createKingdomDecreesForDateIfNeeded(db, today);
   await rollOverShadowWeekIfNeeded(db, today);
+  await activateReturnIfEligible(db, today);
   const weeklyBattle = await calculateCurrentWeekBattlePreview(db, today);
   const finalizedBattle = await getCurrentWeekFinalizedBattle(db, today);
   const activeKingdomWindowKeys = getActiveKingdomWindowKeys(today);
@@ -630,6 +673,20 @@ export async function loadGameState(
   const shadowRow = await db.getFirstAsync<ShadowRow>(
     'SELECT id, name, class, description, current_power, max_power, week_start FROM shadow WHERE id = ?',
     SHADOW_ID,
+  );
+  const returnStateRow = await db.getFirstAsync<ReturnStateRow>(
+    `SELECT
+      id,
+      active,
+      bonus_awarded,
+      bonus_reversed,
+      cycle_started_after_date,
+      eligible_since,
+      fulfilled_at,
+      fulfilled_quest_id
+    FROM return_state
+    WHERE id = ?`,
+    RETURN_STATE_ID,
   );
   const kingdomChecklistRows = await db.getAllAsync<KingdomChecklistRow>(
     `SELECT id, template_id, week_start, window_key, title, frequency, completed
@@ -666,6 +723,9 @@ export async function loadGameState(
       ? mapHeroAttributesRow(heroAttributesRow)
       : DEFAULT_HERO_ATTRIBUTES,
     quests: questRows.map(mapQuestRow),
+    returnState: returnStateRow
+      ? mapReturnStateRow(returnStateRow)
+      : DEFAULT_RETURN_STATE,
     shadow: shadowRow ? mapShadowRow(shadowRow) : DEFAULT_SHADOW,
     today,
     weeklyBattle,
@@ -710,8 +770,42 @@ export async function loadHeroChronicleDeeds(
     ORDER BY date DESC, rowid ASC`,
     dayLimit,
   );
+  const eventRows = await db.getAllAsync<HeroChronicleEventRow>(
+    `SELECT id, event_type, date, title, description, created_at
+    FROM hero_chronicle_events
+    WHERE date IN (
+      SELECT date
+      FROM (
+        SELECT date FROM quests WHERE completed = 1
+        UNION
+        SELECT date FROM hero_chronicle_events
+      )
+      GROUP BY date
+      ORDER BY date DESC
+      LIMIT ?
+    )
+    ORDER BY date DESC, created_at ASC`,
+    dayLimit,
+  );
 
-  return rows.map(mapQuestRow);
+  return [
+    ...rows.map(mapQuestRow),
+    ...eventRows.map(mapHeroChronicleEventRow),
+  ].sort((first, second) => {
+    if (first.date !== second.date) {
+      return second.date.localeCompare(first.date);
+    }
+
+    if (isReturnChronicleEvent(first) && !isReturnChronicleEvent(second)) {
+      return -1;
+    }
+
+    if (!isReturnChronicleEvent(first) && isReturnChronicleEvent(second)) {
+      return 1;
+    }
+
+    return first.id.localeCompare(second.id);
+  });
 }
 
 export async function loadQuestChronicleSummary(
@@ -923,10 +1017,17 @@ export async function toggleQuestInDatabase(
   db: SQLite.SQLiteDatabase,
   questId: string,
   today = getLocalDateString(),
-) {
+): Promise<QuestCompletionResult> {
+  const result: QuestCompletionResult = {
+    bodyAscendedMilestone: null,
+    returnBonusXpAwarded: 0,
+    returnBonusXpReversed: 0,
+    trainingCompleted: false,
+  };
+
   await db.withTransactionAsync(async () => {
     const latestQuest = await db.getFirstAsync<QuestRow>(
-      'SELECT id, template_id, date, title, xp_reward, completed FROM quests WHERE id = ? AND date = ?',
+      'SELECT id, template_id, date, title, category, description, xp_reward, completed, source FROM quests WHERE id = ? AND date = ?',
       questId,
       today,
     );
@@ -948,10 +1049,30 @@ export async function toggleQuestInDatabase(
     }
 
     const isCompleting = latestQuest.completed === 0;
+    const returnState = await getReturnStateRow(db);
+    const isTrainingQuest = isWorkoutQuestTemplateId(latestQuest.template_id);
+    const shouldFulfillReturn =
+      isCompleting &&
+      isTrainingQuest &&
+      returnState.active === 1 &&
+      returnState.bonus_awarded === 0;
+    const shouldReverseReturnBonus =
+      !isCompleting &&
+      returnState.bonus_awarded === 1 &&
+      returnState.bonus_reversed === 0 &&
+      returnState.fulfilled_quest_id === latestQuest.id;
+    const returnBonusChange = shouldFulfillReturn
+      ? RETURN_BONUS_XP
+      : shouldReverseReturnBonus
+        ? -RETURN_BONUS_XP
+        : 0;
     const xpChange = isCompleting
       ? latestQuest.xp_reward
       : -latestQuest.xp_reward;
-    const nextTotalXp = Math.max(latestPlayer.total_xp + xpChange, 0);
+    const nextTotalXp = Math.max(
+      latestPlayer.total_xp + xpChange + returnBonusChange,
+      0,
+    );
     const nextLevel = getLevelForXp(nextTotalXp);
     const shadowDamage = getShadowDamage(latestQuest.xp_reward);
     const shadowPowerChange = isCompleting ? -shadowDamage : shadowDamage;
@@ -962,6 +1083,12 @@ export async function toggleQuestInDatabase(
     );
     const nextCompleted = isCompleting ? 1 : 0;
     const attributeGain = getHeroAttributeGain(latestQuest.template_id);
+    const bodyAscendedMilestone = isCompleting
+      ? getCrossedHeroAttributeMilestone(
+          latestHeroAttributes.body,
+          latestHeroAttributes.body + attributeGain.body,
+        )
+      : null;
     const attributeMultiplier = isCompleting ? 1 : -1;
     const nextBody = Math.max(
       latestHeroAttributes.body + attributeGain.body * attributeMultiplier,
@@ -1032,7 +1159,42 @@ export async function toggleQuestInDatabase(
       nextShadowPower,
       SHADOW_ID,
     );
+
+    if (shouldFulfillReturn) {
+      const fulfilledAt = new Date().toISOString();
+
+      await db.runAsync(
+        `UPDATE return_state
+        SET
+          active = 0,
+          bonus_awarded = 1,
+          bonus_reversed = 0,
+          fulfilled_at = ?,
+          fulfilled_quest_id = ?
+        WHERE id = ?`,
+        fulfilledAt,
+        latestQuest.id,
+        RETURN_STATE_ID,
+      );
+      await insertReturnChronicleEventIfNeeded(db, today, fulfilledAt);
+      result.returnBonusXpAwarded = RETURN_BONUS_XP;
+    }
+
+    if (shouldReverseReturnBonus) {
+      await db.runAsync(
+        `UPDATE return_state
+        SET bonus_reversed = 1
+        WHERE id = ?`,
+        RETURN_STATE_ID,
+      );
+      result.returnBonusXpReversed = RETURN_BONUS_XP;
+    }
+
+    result.bodyAscendedMilestone = bodyAscendedMilestone;
+    result.trainingCompleted = isCompleting && isTrainingQuest;
   });
+
+  return result;
 }
 
 export async function resetTodaysQuestsInDatabase(
@@ -1061,6 +1223,13 @@ export async function resetTodaysQuestsInDatabase(
       return;
     }
 
+    const returnState = await getReturnStateRow(db);
+    const shouldReverseReturnBonus =
+      returnState.bonus_awarded === 1 &&
+      returnState.bonus_reversed === 0 &&
+      completedQuests.some(
+        (quest) => quest.id === returnState.fulfilled_quest_id,
+      );
     const earnedToday = completedQuests.reduce(
       (total, quest) => total + quest.xp_reward,
       0,
@@ -1081,7 +1250,12 @@ export async function resetTodaysQuestsInDatabase(
       },
       { body: 0, mind: 0, purpose: 0 },
     );
-    const nextTotalXp = Math.max(latestPlayer.total_xp - earnedToday, 0);
+    const nextTotalXp = Math.max(
+      latestPlayer.total_xp -
+        earnedToday -
+        (shouldReverseReturnBonus ? RETURN_BONUS_XP : 0),
+      0,
+    );
     const nextLevel = getLevelForXp(nextTotalXp);
     const nextBody = Math.max(
       latestHeroAttributes.body - attributeGainToday.body,
@@ -1154,6 +1328,15 @@ export async function resetTodaysQuestsInDatabase(
       nextShadowPower,
       SHADOW_ID,
     );
+
+    if (shouldReverseReturnBonus) {
+      await db.runAsync(
+        `UPDATE return_state
+        SET bonus_reversed = 1
+        WHERE id = ?`,
+        RETURN_STATE_ID,
+      );
+    }
   });
 }
 
@@ -1170,6 +1353,8 @@ export async function resetAllDataInDatabase(
     await db.runAsync('DELETE FROM kingdom_checklist');
     await db.runAsync('DELETE FROM kingdom_decrees');
     await db.runAsync('DELETE FROM kingdom_state');
+    await db.runAsync('DELETE FROM return_state');
+    await db.runAsync('DELETE FROM hero_chronicle_events');
 
     await db.runAsync(
       'INSERT INTO player (id, total_xp, level) VALUES (?, ?, ?)',
@@ -1211,6 +1396,7 @@ export async function resetAllDataInDatabase(
       DEFAULT_KINGDOM_STATE.prosperity,
       DEFAULT_KINGDOM_STATE.legacy,
     );
+    await insertDefaultReturnStateIfNeeded(db);
 
     for (const quest of await getQuestInstancesForDate(db, today)) {
       await db.runAsync(
@@ -1263,13 +1449,19 @@ export async function completeBonusQuestInDatabase(
   db: SQLite.SQLiteDatabase,
   templateId: string,
   today = getLocalDateString(),
-) {
+): Promise<QuestCompletionResult> {
+  const result: QuestCompletionResult = {
+    bodyAscendedMilestone: null,
+    returnBonusXpAwarded: 0,
+    returnBonusXpReversed: 0,
+    trainingCompleted: false,
+  };
   const questTemplate = BONUS_EFFORT_TEMPLATES.find(
     (template) => template.id === templateId,
   );
 
   if (!questTemplate) {
-    return;
+    return result;
   }
 
   await db.withTransactionAsync(async () => {
@@ -1301,9 +1493,20 @@ export async function completeBonusQuestInDatabase(
       return;
     }
 
-    const nextTotalXp = latestPlayer.total_xp + questTemplate.xp;
+    const returnState = await getReturnStateRow(db);
+    const isTrainingQuest = isWorkoutQuestTemplateId(questTemplate.id);
+    const shouldFulfillReturn =
+      isTrainingQuest &&
+      returnState.active === 1 &&
+      returnState.bonus_awarded === 0;
+    const returnBonus = shouldFulfillReturn ? RETURN_BONUS_XP : 0;
+    const nextTotalXp = latestPlayer.total_xp + questTemplate.xp + returnBonus;
     const nextLevel = getLevelForXp(nextTotalXp);
     const attributeGain = getHeroAttributeGain(questTemplate.id);
+    const bodyAscendedMilestone = getCrossedHeroAttributeMilestone(
+      latestHeroAttributes.body,
+      latestHeroAttributes.body + attributeGain.body,
+    );
     const nextBody = latestHeroAttributes.body + attributeGain.body;
     const nextMind = latestHeroAttributes.mind + attributeGain.mind;
     const nextPurpose = latestHeroAttributes.purpose + attributeGain.purpose;
@@ -1383,7 +1586,32 @@ export async function completeBonusQuestInDatabase(
       nextShadowPower,
       SHADOW_ID,
     );
+
+    if (shouldFulfillReturn) {
+      const fulfilledAt = new Date().toISOString();
+
+      await db.runAsync(
+        `UPDATE return_state
+        SET
+          active = 0,
+          bonus_awarded = 1,
+          bonus_reversed = 0,
+          fulfilled_at = ?,
+          fulfilled_quest_id = ?
+        WHERE id = ?`,
+        fulfilledAt,
+        questId,
+        RETURN_STATE_ID,
+      );
+      await insertReturnChronicleEventIfNeeded(db, today, fulfilledAt);
+      result.returnBonusXpAwarded = RETURN_BONUS_XP;
+    }
+
+    result.bodyAscendedMilestone = bodyAscendedMilestone;
+    result.trainingCompleted = isTrainingQuest;
   });
+
+  return result;
 }
 
 export async function toggleKingdomChecklistItemInDatabase(
@@ -1656,6 +1884,73 @@ export async function startNewWeekInDatabase(
   });
 }
 
+export async function triggerReturnInDatabase(
+  db: SQLite.SQLiteDatabase,
+  today = getLocalDateString(),
+) {
+  const mostRecentCompletedDate = await getMostRecentCompletedQuestDate(db);
+
+  await db.runAsync(
+    `INSERT INTO return_state (
+      id,
+      active,
+      bonus_awarded,
+      bonus_reversed,
+      cycle_started_after_date,
+      eligible_since,
+      fulfilled_at,
+      fulfilled_quest_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      active = excluded.active,
+      bonus_awarded = excluded.bonus_awarded,
+      bonus_reversed = excluded.bonus_reversed,
+      cycle_started_after_date = excluded.cycle_started_after_date,
+      eligible_since = excluded.eligible_since,
+      fulfilled_at = excluded.fulfilled_at,
+      fulfilled_quest_id = excluded.fulfilled_quest_id`,
+    RETURN_STATE_ID,
+    1,
+    0,
+    0,
+    mostRecentCompletedDate,
+    today,
+    null,
+    null,
+  );
+}
+
+export async function clearReturnStateInDatabase(db: SQLite.SQLiteDatabase) {
+  await db.runAsync(
+    `INSERT INTO return_state (
+      id,
+      active,
+      bonus_awarded,
+      bonus_reversed,
+      cycle_started_after_date,
+      eligible_since,
+      fulfilled_at,
+      fulfilled_quest_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      active = excluded.active,
+      bonus_awarded = excluded.bonus_awarded,
+      bonus_reversed = excluded.bonus_reversed,
+      cycle_started_after_date = excluded.cycle_started_after_date,
+      eligible_since = excluded.eligible_since,
+      fulfilled_at = excluded.fulfilled_at,
+      fulfilled_quest_id = excluded.fulfilled_quest_id`,
+    RETURN_STATE_ID,
+    0,
+    0,
+    0,
+    null,
+    null,
+    null,
+    null,
+  );
+}
+
 export function getXpNeededForLevel(level: number) {
   return BASE_LEVEL_XP + (Math.max(level, 1) - 1) * LEVEL_XP_STEP;
 }
@@ -1719,6 +2014,45 @@ export function getHeroAttributeGain(templateId: string) {
     default:
       return { body: 0, mind: 0, purpose: 0 };
   }
+}
+
+function isWorkoutQuestTemplateId(templateId: string) {
+  return (
+    templateId === 'workout-a' ||
+    templateId === 'workout-b' ||
+    templateId === 'workout-c' ||
+    templateId === 'workout-a-carried-over' ||
+    templateId === 'workout-b-carried-over' ||
+    templateId === 'workout-c-carried-over'
+  );
+}
+
+function getCrossedHeroAttributeMilestone(
+  previousValue: number,
+  nextValue: number,
+) {
+  if (nextValue <= previousValue) {
+    return null;
+  }
+
+  const fixedMilestone = [100, 500, 1000, 2500, 5000].find(
+    (milestone) => previousValue < milestone && nextValue >= milestone,
+  );
+
+  if (fixedMilestone) {
+    return fixedMilestone;
+  }
+
+  if (previousValue < 5000) {
+    return null;
+  }
+
+  const previousDynamicMilestone = Math.floor(previousValue / 5000) * 5000;
+  const nextDynamicMilestone = Math.floor(nextValue / 5000) * 5000;
+
+  return nextDynamicMilestone > previousDynamicMilestone
+    ? nextDynamicMilestone
+    : null;
 }
 
 function getKingdomChecklistReward(templateId: string) {
@@ -1813,8 +2147,27 @@ async function setupDatabase(db: SQLite.SQLiteDatabase, today: string) {
       completed INTEGER NOT NULL DEFAULT 0,
       completed_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS return_state (
+      id TEXT PRIMARY KEY NOT NULL,
+      active INTEGER NOT NULL DEFAULT 0,
+      bonus_awarded INTEGER NOT NULL DEFAULT 0,
+      bonus_reversed INTEGER NOT NULL DEFAULT 0,
+      cycle_started_after_date TEXT,
+      eligible_since TEXT,
+      fulfilled_at TEXT,
+      fulfilled_quest_id TEXT
+    );
+    CREATE TABLE IF NOT EXISTS hero_chronicle_events (
+      id TEXT PRIMARY KEY NOT NULL,
+      event_type TEXT NOT NULL,
+      date TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS kingdom_checklist_week_start_idx ON kingdom_checklist (week_start);
     CREATE INDEX IF NOT EXISTS kingdom_decrees_date_idx ON kingdom_decrees (date);
+    CREATE INDEX IF NOT EXISTS hero_chronicle_events_date_idx ON hero_chronicle_events (date);
   `);
 
   await migrateQuestTableIfNeeded(db, today);
@@ -1852,6 +2205,7 @@ async function setupDatabase(db: SQLite.SQLiteDatabase, today: string) {
     DEFAULT_KINGDOM_STATE.prosperity,
     DEFAULT_KINGDOM_STATE.legacy,
   );
+  await insertDefaultReturnStateIfNeeded(db);
 
   await createQuestsFromWeekStartThroughDateIfNeeded(db, today);
   await createKingdomChecklistForWeekIfNeeded(db, today);
@@ -1983,6 +2337,136 @@ async function initializeHeroAttributesIfNeeded(db: SQLite.SQLiteDatabase) {
   );
 }
 
+async function insertDefaultReturnStateIfNeeded(db: SQLite.SQLiteDatabase) {
+  await db.runAsync(
+    `INSERT OR IGNORE INTO return_state (
+      id,
+      active,
+      bonus_awarded,
+      bonus_reversed,
+      cycle_started_after_date,
+      eligible_since,
+      fulfilled_at,
+      fulfilled_quest_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    DEFAULT_RETURN_STATE.id,
+    DEFAULT_RETURN_STATE.active ? 1 : 0,
+    DEFAULT_RETURN_STATE.bonusAwarded ? 1 : 0,
+    DEFAULT_RETURN_STATE.bonusReversed ? 1 : 0,
+    DEFAULT_RETURN_STATE.cycleStartedAfterDate,
+    DEFAULT_RETURN_STATE.eligibleSince,
+    DEFAULT_RETURN_STATE.fulfilledAt,
+    DEFAULT_RETURN_STATE.fulfilledQuestId,
+  );
+}
+
+async function getReturnStateRow(db: SQLite.SQLiteDatabase) {
+  await insertDefaultReturnStateIfNeeded(db);
+
+  return (
+    (await db.getFirstAsync<ReturnStateRow>(
+      `SELECT
+        id,
+        active,
+        bonus_awarded,
+        bonus_reversed,
+        cycle_started_after_date,
+        eligible_since,
+        fulfilled_at,
+        fulfilled_quest_id
+      FROM return_state
+      WHERE id = ?`,
+      RETURN_STATE_ID,
+    )) ?? {
+      id: RETURN_STATE_ID,
+      active: 0,
+      bonus_awarded: 0,
+      bonus_reversed: 0,
+      cycle_started_after_date: null,
+      eligible_since: null,
+      fulfilled_at: null,
+      fulfilled_quest_id: null,
+    }
+  );
+}
+
+async function activateReturnIfEligible(
+  db: SQLite.SQLiteDatabase,
+  today: string,
+) {
+  const returnState = await getReturnStateRow(db);
+
+  if (returnState.active === 1) {
+    return;
+  }
+
+  const mostRecentCompletedDate = await getMostRecentCompletedQuestDate(db);
+
+  if (!mostRecentCompletedDate) {
+    return;
+  }
+
+  if (returnState.cycle_started_after_date === mostRecentCompletedDate) {
+    return;
+  }
+
+  const daysSinceCompleted = getLocalCalendarDayDistance(
+    mostRecentCompletedDate,
+    today,
+  );
+
+  if (daysSinceCompleted < RETURN_ABSENCE_DAYS) {
+    return;
+  }
+
+  await db.runAsync(
+    `UPDATE return_state
+    SET
+      active = 1,
+      bonus_awarded = 0,
+      bonus_reversed = 0,
+      cycle_started_after_date = ?,
+      eligible_since = ?,
+      fulfilled_at = NULL,
+      fulfilled_quest_id = NULL
+    WHERE id = ?`,
+    mostRecentCompletedDate,
+    today,
+    RETURN_STATE_ID,
+  );
+}
+
+async function getMostRecentCompletedQuestDate(db: SQLite.SQLiteDatabase) {
+  const row = await db.getFirstAsync<{ date: string }>(
+    'SELECT MAX(date) AS date FROM quests WHERE completed = 1',
+  );
+
+  return row?.date ?? null;
+}
+
+async function insertReturnChronicleEventIfNeeded(
+  db: SQLite.SQLiteDatabase,
+  date: string,
+  createdAt: string,
+) {
+  await db.runAsync(
+    `INSERT OR IGNORE INTO hero_chronicle_events (
+      id,
+      event_type,
+      date,
+      title,
+      description,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?)`,
+    getReturnChronicleEventId(date, createdAt),
+    'return',
+    date,
+    'THE RETURN',
+    'The Hero returned to training.',
+    createdAt,
+  );
+}
+
 function mapQuestRow(row: QuestRow): Quest {
   return {
     id: row.id,
@@ -1995,6 +2479,37 @@ function mapQuestRow(row: QuestRow): Quest {
     completed: row.completed === 1,
     source: row.source ?? 'scheduled',
   };
+}
+
+function mapReturnStateRow(row: ReturnStateRow): ReturnState {
+  return {
+    id: row.id,
+    active: row.active === 1,
+    bonusAwarded: row.bonus_awarded === 1,
+    bonusReversed: row.bonus_reversed === 1,
+    cycleStartedAfterDate: row.cycle_started_after_date,
+    eligibleSince: row.eligible_since,
+    fulfilledAt: row.fulfilled_at,
+    fulfilledQuestId: row.fulfilled_quest_id,
+  };
+}
+
+function mapHeroChronicleEventRow(
+  row: HeroChronicleEventRow,
+): HeroChronicleDeed {
+  return {
+    id: row.id,
+    date: row.date,
+    title: row.title,
+    description: row.description,
+    kind: row.event_type,
+  };
+}
+
+function isReturnChronicleEvent(
+  deed: HeroChronicleDeed,
+): deed is Extract<HeroChronicleDeed, { kind: 'return' }> {
+  return 'kind' in deed && deed.kind === 'return';
 }
 
 function mapShadowRow(row: ShadowRow): Shadow {
@@ -2538,6 +3053,10 @@ function getKingdomDecreeId(date: string, templateId: string) {
   return `${date}:decree:${templateId}`;
 }
 
+function getReturnChronicleEventId(date: string, createdAt: string) {
+  return `${date}:return:${createdAt}`;
+}
+
 function getKingdomDecreeTemplatesForDate(date: string) {
   const selectedTemplateIds = new Set<string>();
   const selections = KINGDOM_DECREE_TYPE_ORDER.flatMap((type, typeIndex) =>
@@ -2706,6 +3225,13 @@ function parseLocalDate(date: string) {
   const [year, month, day] = date.split('-').map(Number);
 
   return new Date(year, month - 1, day);
+}
+
+function getLocalCalendarDayDistance(startDate: string, endDate: string) {
+  const startTime = parseLocalDate(startDate).getTime();
+  const endTime = parseLocalDate(endDate).getTime();
+
+  return Math.floor((endTime - startTime) / ONE_WEEK_IN_MS * 7);
 }
 
 async function getKingdomFavorForWeek(

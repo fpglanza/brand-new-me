@@ -24,7 +24,9 @@ import {
   DEFAULT_HERO_ATTRIBUTES,
   DEFAULT_KINGDOM_STATE,
   DEFAULT_PLAYER,
+  DEFAULT_RETURN_STATE,
   DEFAULT_SHADOW,
+  clearReturnStateInDatabase,
   clearCurrentWeekResultInDatabase,
   completeBonusQuestInDatabase,
   finalizeCurrentWeekInDatabase,
@@ -46,6 +48,7 @@ import {
   startNewWeekInDatabase,
   toggleKingdomDecreeInDatabase,
   toggleQuestInDatabase,
+  triggerReturnInDatabase,
 } from './src/database/db';
 import type {
   EmpressChronicleJudgment,
@@ -58,8 +61,10 @@ import type {
   KingdomState,
   Player,
   Quest,
+  HeroChronicleReturnEvent,
   QuestChronicleSummary,
   QuestTemplate,
+  ReturnState,
   Shadow,
 } from './src/types/game';
 import type { WeeklyBattlePreview as WeeklyBattlePreviewData } from './src/types/game';
@@ -160,6 +165,13 @@ type LevelUpEvent = {
   newTitle: string;
   previousLevel: number;
   nextLevel: number;
+};
+
+type TrainingCompleteEvent = {
+  bodyGain: number;
+  bodyMilestone: number | null;
+  returnBonusXp: number;
+  xpGain: number;
 };
 
 type AttributeGainDisplay = {
@@ -352,6 +364,16 @@ function getHeroAttributeMilestone(value: number) {
   return Math.ceil(value / 5000) * 5000;
 }
 
+function getDistanceToHeroAttributeMilestone(value: number) {
+  return Math.max(getHeroAttributeMilestone(value) - value, 0);
+}
+
+function isReturnChronicleDeed(
+  deed: HeroChronicleDeed,
+): deed is HeroChronicleReturnEvent {
+  return 'kind' in deed && deed.kind === 'return';
+}
+
 function getQuestCategoryDisplayLabel(category: string) {
   return QUEST_CATEGORY_DISPLAY_LABELS[category] ?? category.toUpperCase();
 }
@@ -419,10 +441,18 @@ function getKingdomDecreeGlyph(type: KingdomDecree['type']) {
 }
 
 function getHeroChronicleDeedTitle(deed: HeroChronicleDeed) {
+  if (isReturnChronicleDeed(deed)) {
+    return deed.title;
+  }
+
   return deed.title.replace(' — Carried Over', '');
 }
 
 function getHeroChronicleDeedTag(deed: HeroChronicleDeed) {
+  if (isReturnChronicleDeed(deed)) {
+    return 'RETURN';
+  }
+
   if (deed.source === 'bonus') {
     return 'BONUS';
   }
@@ -573,6 +603,8 @@ export default function App() {
   const [quests, setQuests] = useState<Quest[]>(
     getDefaultQuestsForDate(initialToday),
   );
+  const [returnState, setReturnState] =
+    useState<ReturnState>(DEFAULT_RETURN_STATE);
   const [heroChronicleDeeds, setHeroChronicleDeeds] = useState<
     HeroChronicleDeed[]
   >([]);
@@ -602,6 +634,8 @@ export default function App() {
   );
   const [xpToastAmount, setXpToastAmount] = useState<number | null>(null);
   const [levelUpEvent, setLevelUpEvent] = useState<LevelUpEvent | null>(null);
+  const [trainingCompleteEvent, setTrainingCompleteEvent] =
+    useState<TrainingCompleteEvent | null>(null);
   const completingQuestIdsRef = useRef(new Set<string>());
   const togglingKingdomDecreeIdsRef = useRef(new Set<string>());
   const heroXpProgressAnim = useRef(new Animated.Value(0)).current;
@@ -610,6 +644,9 @@ export default function App() {
   const xpToastOpacity = useRef(new Animated.Value(0)).current;
   const xpToastTranslateY = useRef(new Animated.Value(12)).current;
   const levelUpOpacity = useRef(new Animated.Value(0)).current;
+  const trainingOverlayOpacity = useRef(new Animated.Value(0)).current;
+  const trainingOverlayScale = useRef(new Animated.Value(0.96)).current;
+  const trainingSpriteTranslateY = useRef(new Animated.Value(0)).current;
   const pageTransitionOpacity = useRef(
     new Animated.Value(PAGE_TRANSITION_START_OPACITY),
   ).current;
@@ -618,6 +655,8 @@ export default function App() {
   ).current;
   const xpToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const levelUpTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trainingCompleteTimeoutRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousPlayerRef = useRef<Player>(DEFAULT_PLAYER);
 
   useEffect(() => {
@@ -645,6 +684,7 @@ export default function App() {
       setHeroAttributes(gameState.heroAttributes);
       setToday(gameState.today);
       setQuests(gameState.quests);
+      setReturnState(gameState.returnState);
       setHeroChronicleDeeds(completedDeeds);
       setQuestChronicleSummary(questSummary);
       setEmpressChronicleSummary(empressSummary);
@@ -792,6 +832,10 @@ export default function App() {
       if (levelUpTimeoutRef.current) {
         clearTimeout(levelUpTimeoutRef.current);
       }
+
+      if (trainingCompleteTimeoutRef.current) {
+        clearTimeout(trainingCompleteTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -878,13 +922,72 @@ export default function App() {
     }, LEVEL_UP_OVERLAY_DURATION_MS);
   };
 
+  const showTrainingCompleteOverlay = (event: TrainingCompleteEvent) => {
+    if (trainingCompleteTimeoutRef.current) {
+      clearTimeout(trainingCompleteTimeoutRef.current);
+    }
+
+    setTrainingCompleteEvent(event);
+    trainingOverlayOpacity.stopAnimation();
+    trainingOverlayScale.stopAnimation();
+    trainingSpriteTranslateY.stopAnimation();
+    trainingOverlayOpacity.setValue(0);
+    trainingOverlayScale.setValue(0.96);
+    trainingSpriteTranslateY.setValue(0);
+
+    Animated.parallel([
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(trainingOverlayOpacity, {
+            duration: 160,
+            toValue: 1,
+            useNativeDriver: true,
+          }),
+          Animated.spring(trainingOverlayScale, {
+            friction: 6,
+            tension: 90,
+            toValue: 1,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.delay(980),
+        Animated.timing(trainingOverlayOpacity, {
+          duration: 260,
+          toValue: 0,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.sequence([
+        Animated.timing(trainingSpriteTranslateY, {
+          duration: 180,
+          toValue: -10,
+          useNativeDriver: true,
+        }),
+        Animated.spring(trainingSpriteTranslateY, {
+          friction: 5,
+          tension: 80,
+          toValue: 0,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start();
+
+    trainingCompleteTimeoutRef.current = setTimeout(() => {
+      setTrainingCompleteEvent(null);
+    }, 1450);
+  };
+
   const showQuestCompletionFeedback = (
     previousPlayer: Player,
     nextPlayer: Player,
     xpAmount: number,
     attributeGains: AttributeGainDisplay[],
+    trainingEvent?: TrainingCompleteEvent,
   ) => {
     showXpToast(xpAmount);
+    if (trainingEvent) {
+      showTrainingCompleteOverlay(trainingEvent);
+    }
     showLevelUpOverlay(previousPlayer.level, nextPlayer.level, attributeGains);
   };
 
@@ -898,7 +1001,7 @@ export default function App() {
     try {
       const previousPlayer = player;
       const previousHeroAttributes = heroAttributes;
-      await toggleQuestInDatabase(db, quest.id, today);
+      const completionResult = await toggleQuestInDatabase(db, quest.id, today);
       const gameState = await loadGameState(db, today);
       const completedDeeds = await loadHeroChronicleDeeds(db);
       const questSummary = await loadQuestChronicleSummary(db, today);
@@ -919,14 +1022,27 @@ export default function App() {
       setKingdomState(gameState.kingdomState);
 
       if (!quest.completed && gameState.player.totalXp > previousPlayer.totalXp) {
+        const bodyGain = Math.max(
+          gameState.heroAttributes.body - previousHeroAttributes.body,
+          0,
+        );
+
         showQuestCompletionFeedback(
           previousPlayer,
           gameState.player,
-          quest.xp,
+          gameState.player.totalXp - previousPlayer.totalXp,
           getLevelRecapAttributeGains(
             previousHeroAttributes,
             gameState.heroAttributes,
           ),
+          completionResult.trainingCompleted
+            ? {
+                bodyGain,
+                bodyMilestone: completionResult.bodyAscendedMilestone,
+                returnBonusXp: completionResult.returnBonusXpAwarded,
+                xpGain: quest.xp,
+              }
+            : undefined,
         );
       }
     } catch (error) {
@@ -946,6 +1062,7 @@ export default function App() {
     setHeroAttributes(gameState.heroAttributes);
     setToday(gameState.today);
     setQuests(gameState.quests);
+    setReturnState(gameState.returnState);
     setHeroChronicleDeeds(completedDeeds);
     setQuestChronicleSummary(questSummary);
     setEmpressChronicleSummary(empressSummary);
@@ -984,19 +1101,36 @@ export default function App() {
     try {
       const previousPlayer = player;
       const previousHeroAttributes = heroAttributes;
-      await completeBonusQuestInDatabase(db, questTemplate.id, today);
+      const completionResult = await completeBonusQuestInDatabase(
+        db,
+        questTemplate.id,
+        today,
+      );
       setIsBonusPickerOpen(false);
       const gameState = await reloadState(db, today);
 
       if (gameState.player.totalXp > previousPlayer.totalXp) {
+        const bodyGain = Math.max(
+          gameState.heroAttributes.body - previousHeroAttributes.body,
+          0,
+        );
+
         showQuestCompletionFeedback(
           previousPlayer,
           gameState.player,
-          questTemplate.xp,
+          gameState.player.totalXp - previousPlayer.totalXp,
           getLevelRecapAttributeGains(
             previousHeroAttributes,
             gameState.heroAttributes,
           ),
+          completionResult.trainingCompleted
+            ? {
+                bodyGain,
+                bodyMilestone: completionResult.bodyAscendedMilestone,
+                returnBonusXp: completionResult.returnBonusXpAwarded,
+                xpGain: questTemplate.xp,
+              }
+            : undefined,
         );
       }
     } catch (error) {
@@ -1073,6 +1207,7 @@ export default function App() {
   const availableBonusEfforts = BONUS_EFFORT_TEMPLATES.filter(
     (questTemplate) => !todaysQuestTemplateIds.has(questTemplate.id),
   );
+  const isReturnQuestActive = returnState.active;
   const heroChronicleGroups = groupHeroChronicleDeeds(heroChronicleDeeds);
   const completedKingdomDecree = kingdomDecrees.find(
     (decree) => decree.completed,
@@ -1204,6 +1339,34 @@ export default function App() {
               </Text>
             </Pressable>
 
+            {isReturnQuestActive ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setActiveView('quests')}
+                style={({ pressed }) => [
+                  styles.returnQuestCard,
+                  isCompactMobile ? styles.returnQuestCardCompact : null,
+                  pressed ? styles.homeActionPressed : null,
+                ]}
+              >
+                <View style={styles.returnQuestEmber} />
+                <Text style={styles.returnQuestEyebrow}>
+                  THE FIRE STILL BURNS
+                </Text>
+                <Text style={styles.returnQuestText}>
+                  The road has been quiet.
+                </Text>
+                <Text style={styles.returnQuestText}>
+                  Your story continues.
+                </Text>
+                <View style={styles.returnQuestDivider} />
+                <Text style={styles.returnQuestTitle}>RETURN QUEST</Text>
+                <Text style={styles.returnQuestObjective}>
+                  Complete one workout.
+                </Text>
+              </Pressable>
+            ) : null}
+
             <View
               style={[
                 styles.homeActions,
@@ -1301,7 +1464,36 @@ export default function App() {
                     <Text style={styles.debugMetaText}>
                       Current Test Date: {today}
                     </Text>
+                    <Text style={styles.debugMetaText}>
+                      Return Active: {isReturnQuestActive ? 'Yes' : 'No'}
+                    </Text>
                   </View>
+
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() =>
+                      runDebugAction((database, currentDate) =>
+                        triggerReturnInDatabase(database, currentDate),
+                      )
+                    }
+                    style={styles.debugButton}
+                  >
+                    <Text style={styles.debugButtonText}>Trigger Return</Text>
+                  </Pressable>
+
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() =>
+                      runDebugAction((database) =>
+                        clearReturnStateInDatabase(database),
+                      )
+                    }
+                    style={styles.debugButton}
+                  >
+                    <Text style={styles.debugButtonText}>
+                      Clear Return State
+                    </Text>
+                  </Pressable>
 
                   <Pressable
                     accessibilityRole="button"
@@ -1788,6 +1980,11 @@ export default function App() {
                       <Text style={styles.statValue}>
                         {attributeValue} / {attributeMilestone}
                       </Text>
+                      {attribute.key === 'body' ? (
+                        <Text style={styles.statMilestoneHint}>
+                          {getDistanceToHeroAttributeMilestone(attributeValue)} TO NEXT MILESTONE
+                        </Text>
+                      ) : null}
                     </View>
                     <View style={styles.statBarTrack}>
                       <Animated.View
@@ -1947,9 +2144,16 @@ export default function App() {
                         return (
                           <View key={deed.id} style={styles.heroChronicleDeedRow}>
                             <Text style={styles.heroChronicleBullet}>•</Text>
-                            <Text style={styles.heroChronicleDeedTitle}>
-                              {getHeroChronicleDeedTitle(deed)}
-                            </Text>
+                            <View style={styles.heroChronicleDeedTextBlock}>
+                              <Text style={styles.heroChronicleDeedTitle}>
+                                {getHeroChronicleDeedTitle(deed)}
+                              </Text>
+                              {isReturnChronicleDeed(deed) ? (
+                                <Text style={styles.heroChronicleDeedFlavor}>
+                                  {deed.description}
+                                </Text>
+                              ) : null}
+                            </View>
                             {deedTag ? (
                               <Text style={styles.heroChronicleDeedTag}>
                                 {deedTag}
@@ -2453,6 +2657,66 @@ export default function App() {
         </Animated.View>
       ) : null}
 
+      {trainingCompleteEvent ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.trainingCompleteOverlay,
+            {
+              opacity: trainingOverlayOpacity,
+            },
+          ]}
+        >
+          <Animated.View
+            style={[
+              styles.trainingCompleteCard,
+              {
+                transform: [{ scale: trainingOverlayScale }],
+              },
+            ]}
+          >
+            <View style={styles.trainingCompleteHeaderGlow} />
+            <Animated.View
+              style={[
+                styles.trainingCompleteSprite,
+                {
+                  transform: [{ translateY: trainingSpriteTranslateY }],
+                },
+              ]}
+            >
+              <HeroWalkSprite size={86} />
+            </Animated.View>
+            <Text style={styles.trainingCompleteTitle}>
+              TRAINING COMPLETE
+            </Text>
+            <View style={styles.trainingRewardRow}>
+              <Text style={styles.trainingBodyReward}>
+                BODY +{trainingCompleteEvent.bodyGain}
+              </Text>
+              <Text style={styles.trainingXpReward}>
+                +{trainingCompleteEvent.xpGain} XP
+              </Text>
+            </View>
+            {trainingCompleteEvent.returnBonusXp > 0 ? (
+              <Text style={styles.trainingReturnBonus}>
+                RETURN BONUS +{trainingCompleteEvent.returnBonusXp} XP
+              </Text>
+            ) : null}
+            {trainingCompleteEvent.bodyMilestone ? (
+              <View style={styles.bodyAscendedBox}>
+                <Text style={styles.bodyAscendedTitle}>BODY ASCENDED</Text>
+                <Text style={styles.bodyAscendedValue}>
+                  {trainingCompleteEvent.bodyMilestone}
+                </Text>
+                <Text style={styles.bodyAscendedFlavor}>
+                  Physical discipline has taken root.
+                </Text>
+              </View>
+            ) : null}
+          </Animated.View>
+        </Animated.View>
+      ) : null}
+
       {levelUpEvent ? (
         <Animated.View
           pointerEvents="none"
@@ -2666,6 +2930,63 @@ const styles = StyleSheet.create({
   },
   heroSpriteHintCompact: {
     marginTop: 6,
+  },
+  returnQuestCard: {
+    alignItems: 'center',
+    backgroundColor: '#211C18',
+    borderColor: '#D9A24C',
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+    overflow: 'hidden',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    shadowColor: '#F6C453',
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+  },
+  returnQuestCardCompact: {
+    marginBottom: 12,
+    paddingVertical: 12,
+  },
+  returnQuestEmber: {
+    backgroundColor: '#F6C453',
+    borderRadius: 999,
+    height: 3,
+    marginBottom: 9,
+    width: 80,
+  },
+  returnQuestEyebrow: {
+    color: '#F6C453',
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 7,
+    textAlign: 'center',
+  },
+  returnQuestText: {
+    color: '#D7C7A3',
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  returnQuestDivider: {
+    backgroundColor: '#7A5A2A',
+    borderRadius: 999,
+    height: 1,
+    marginVertical: 10,
+    width: 132,
+  },
+  returnQuestTitle: {
+    color: '#F4F1DE',
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 3,
+  },
+  returnQuestObjective: {
+    color: '#F6C453',
+    fontSize: 13,
+    fontWeight: '900',
   },
   characterStage: {
     alignItems: 'center',
@@ -3600,10 +3921,19 @@ const styles = StyleSheet.create({
   },
   heroChronicleDeedTitle: {
     color: '#F4F1DE',
-    flex: 1,
     fontSize: 13,
     fontWeight: '800',
     lineHeight: 17,
+  },
+  heroChronicleDeedTextBlock: {
+    flex: 1,
+  },
+  heroChronicleDeedFlavor: {
+    color: '#D9C08A',
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 15,
+    marginTop: 2,
   },
   heroChronicleDeedTag: {
     backgroundColor: '#2A2436',
@@ -3788,6 +4118,12 @@ const styles = StyleSheet.create({
     color: '#A8B0C7',
     fontSize: 13,
     fontWeight: '700',
+  },
+  statMilestoneHint: {
+    color: '#F6C453',
+    fontSize: 10,
+    fontWeight: '900',
+    marginTop: 3,
   },
   statBarTrack: {
     backgroundColor: '#171923',
@@ -4174,6 +4510,113 @@ const styles = StyleSheet.create({
     color: '#F6C453',
     fontSize: 18,
     fontWeight: '900',
+  },
+  trainingCompleteOverlay: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(23, 25, 35, 0.46)',
+    bottom: 0,
+    justifyContent: 'center',
+    left: 0,
+    paddingHorizontal: 22,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  trainingCompleteCard: {
+    alignItems: 'center',
+    backgroundColor: '#211C18',
+    borderColor: '#F6C453',
+    borderRadius: 14,
+    borderWidth: 1,
+    maxWidth: 390,
+    overflow: 'hidden',
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 16,
+    shadowColor: '#F6C453',
+    shadowOpacity: 0.36,
+    shadowRadius: 22,
+    width: '100%',
+  },
+  trainingCompleteHeaderGlow: {
+    backgroundColor: '#F6C453',
+    borderRadius: 999,
+    height: 3,
+    marginBottom: 7,
+    opacity: 0.95,
+    width: 112,
+  },
+  trainingCompleteSprite: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(85, 209, 135, 0.08)',
+    borderColor: 'rgba(85, 209, 135, 0.28)',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 72,
+    justifyContent: 'center',
+    marginBottom: 7,
+    overflow: 'visible',
+    width: 100,
+  },
+  trainingCompleteTitle: {
+    color: '#F4F1DE',
+    fontSize: 22,
+    fontWeight: '900',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  trainingRewardRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  trainingBodyReward: {
+    color: '#55D187',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  trainingXpReward: {
+    color: '#F6C453',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  trainingReturnBonus: {
+    color: '#D9C08A',
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  bodyAscendedBox: {
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(85, 209, 135, 0.08)',
+    borderColor: 'rgba(85, 209, 135, 0.32)',
+    borderRadius: 8,
+    borderTopWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  bodyAscendedTitle: {
+    color: '#55D187',
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  bodyAscendedValue: {
+    color: '#F4F1DE',
+    fontSize: 20,
+    fontWeight: '900',
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  bodyAscendedFlavor: {
+    color: '#A8B0C7',
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 3,
+    textAlign: 'center',
   },
   levelUpOverlay: {
     alignItems: 'center',
